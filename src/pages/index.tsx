@@ -27,7 +27,10 @@ export default function Home() {
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
               <div className="flex items-center gap-2">
                 <Shield className="h-8 w-8 text-blue-accent" />
-                <h1 className="text-2xl font-heading font-bold text-foreground">LicenseVault</h1>
+                <div>
+                  <h1 className="text-2xl font-heading font-bold text-foreground">LicenseVault</h1>
+                  <p className="text-xs text-muted-foreground">Developer: Rajkumar Rao.R</p>
+                </div>
               </div>
               <Button
                 variant="outline"

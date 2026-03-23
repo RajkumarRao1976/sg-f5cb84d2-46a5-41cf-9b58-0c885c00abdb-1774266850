@@ -160,6 +160,10 @@ export default function Login() {
                 Register
               </Link>
             </div>
+
+            <div className="mt-4 pt-4 border-t text-center text-xs text-muted-foreground">
+              <p>Developer: Rajkumar Rao.R</p>
+            </div>
           </CardContent>
         </Card>
       </div>
