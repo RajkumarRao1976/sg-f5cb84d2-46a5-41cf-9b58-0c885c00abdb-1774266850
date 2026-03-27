@@ -37,8 +37,8 @@ export default function Home() {
                 onClick={() => {
                   storage.setCurrentUser(null);
                   setCurrentUser(null);
-                }}
-              >
+                }}>
+                
                 Logout
               </Button>
             </div>
@@ -107,8 +107,8 @@ export default function Home() {
             </Card>
           </main>
         </div>
-      </>
-    );
+      </>);
+
   }
 
   return (
@@ -125,7 +125,7 @@ export default function Home() {
             <div className="flex flex-wrap justify-center gap-4 text-sm text-white/80">
               <div className="flex items-center gap-2">
                 <Shield className="h-4 w-4" />
-                <span>Lifetime Free Hosting</span>
+                <span>Developer: Rajkumar Rao.R</span>
               </div>
               <div className="flex items-center gap-2">
                 <Database className="h-4 w-4" />
@@ -169,6 +169,6 @@ export default function Home() {
           </div>
         </div>
       </div>
-    </>
-  );
+    </>);
+
 }
