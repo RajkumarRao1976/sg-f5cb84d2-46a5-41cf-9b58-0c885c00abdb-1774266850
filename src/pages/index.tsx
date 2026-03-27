@@ -129,7 +129,7 @@ export default function Home() {
               </div>
               <div className="flex items-center gap-2">
                 <Database className="h-4 w-4" />
-                <span>Lifetime Free Database</span>
+                <span>Ultra Secure Database</span>
               </div>
               <div className="flex items-center gap-2">
                 <Download className="h-4 w-4" />
