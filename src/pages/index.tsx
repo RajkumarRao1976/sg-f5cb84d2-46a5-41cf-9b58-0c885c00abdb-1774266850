@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Shield, Key, Database, Download, Sparkles } from "lucide-react";
 import Link from "next/link";
 import type { User, License } from "@/types";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -16,6 +17,7 @@ export default function Home() {
     expiringSoon: 0,
     totalSpent: 0,
   });
+  const [categoryData, setCategoryData] = useState<Array<{ category: string; amount: number }>>([]);
 
   useEffect(() => {
     setMounted(true);
@@ -50,12 +52,24 @@ export default function Home() {
 
     const totalSpent = licenses.reduce((sum, l) => sum + (l.priceInINR || 0), 0);
 
+    // Calculate spending by category
+    const categorySpending: Record<string, number> = {};
+    licenses.forEach((l) => {
+      const cat = l.customCategory || l.category;
+      categorySpending[cat] = (categorySpending[cat] || 0) + (l.priceInINR || 0);
+    });
+
+    const chartData = Object.entries(categorySpending)
+      .map(([category, amount]) => ({ category, amount }))
+      .sort((a, b) => b.amount - a.amount);
+
     setStats({
       total: licenses.length,
       active,
       expiringSoon,
       totalSpent,
     });
+    setCategoryData(chartData);
   };
 
   const populateSampleData = () => {
@@ -246,6 +260,50 @@ export default function Home() {
                 </CardContent>
               </Card>
             </div>
+
+            <Card className="mb-8">
+              <CardHeader>
+                <CardTitle className="font-heading">Spending by Category</CardTitle>
+                <CardDescription>Total INR spent on each software category</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {categoryData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={categoryData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis 
+                        dataKey="category" 
+                        angle={-45}
+                        textAnchor="end"
+                        height={100}
+                        tick={{ fill: "hsl(var(--foreground))", fontSize: 12 }}
+                      />
+                      <YAxis 
+                        tick={{ fill: "hsl(var(--foreground))", fontSize: 12 }}
+                        tickFormatter={(value) => `₹${value.toLocaleString("en-IN")}`}
+                      />
+                      <Tooltip 
+                        formatter={(value: number) => `₹${value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                        contentStyle={{
+                          backgroundColor: "hsl(var(--card))",
+                          border: "1px solid hsl(var(--border))",
+                          borderRadius: "8px",
+                        }}
+                      />
+                      <Bar dataKey="amount" radius={[8, 8, 0, 0]}>
+                        {categoryData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill="hsl(var(--blue-accent))" />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                    No spending data available. Add licenses to see the breakdown.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
             <Card>
               <CardHeader>
