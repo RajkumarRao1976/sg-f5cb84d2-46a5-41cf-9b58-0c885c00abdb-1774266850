@@ -22,16 +22,16 @@ export default function Home() {
     const user = storage.getCurrentUser();
     setCurrentUser(user);
     if (user) {
-      calculateStats(user);
+      calculateStats();
     }
   }, []);
 
-  const calculateStats = (user: User) => {
-    const licenses = storage.getLicenses(user.id);
+  const calculateStats = () => {
+    const licenses = storage.getLicenses();
     const now = new Date();
 
     const active = licenses.filter((l) => {
-      if (l.type === "Perpetual") return true;
+      if (l.licenseType === "Perpetual") return true;
       if (l.renewalDate) {
         const renewalDate = new Date(l.renewalDate);
         return renewalDate > now;
@@ -40,15 +40,15 @@ export default function Home() {
     }).length;
 
     const expiringSoon = licenses.filter((l) => {
-      if (l.type === "Subscription" && l.renewalDate && l.renewalAlarm) {
+      if (l.licenseType === "Subscription" && l.renewalDate && l.renewalAlarmDays) {
         const renewalDate = new Date(l.renewalDate);
-        const alarmDate = new Date(renewalDate.getTime() - l.renewalAlarm * 24 * 60 * 60 * 1000);
+        const alarmDate = new Date(renewalDate.getTime() - l.renewalAlarmDays * 24 * 60 * 60 * 1000);
         return alarmDate <= now && renewalDate > now;
       }
       return false;
     }).length;
 
-    const totalSpent = licenses.reduce((sum, l) => sum + l.priceINR, 0);
+    const totalSpent = licenses.reduce((sum, l) => sum + (l.priceInINR || 0), 0);
 
     setStats({
       total: licenses.length,
@@ -61,102 +61,109 @@ export default function Home() {
   const populateSampleData = () => {
     if (!currentUser) return;
 
+    const nowStr = new Date().toISOString();
+
     const sampleLicenses: Omit<License, "id">[] = [
       {
-        userId: currentUser.id,
         softwareName: "Adobe Premiere Pro",
         category: "Video Editing",
-        type: "Subscription",
+        licenseType: "Subscription",
         purchaseDate: "2024-01-15",
         renewalDate: "2025-01-15",
-        renewalAlarm: 30,
+        renewalAlarmDays: 30,
         currency: "USD",
         price: 54.99,
-        priceINR: 4591.67,
+        priceInINR: 4591.67,
         licenseKey: "ABCD-1234-EFGH-5678",
         username: "",
         password: "",
         downloadUrl: "https://adobe.com/premiere",
         customCategory: "",
+        createdAt: nowStr,
+        updatedAt: nowStr,
       },
       {
-        userId: currentUser.id,
         softwareName: "FL Studio Producer Edition",
         category: "Music Production",
-        type: "Perpetual",
+        licenseType: "Perpetual",
         purchaseDate: "2023-06-10",
         renewalDate: "",
-        renewalAlarm: 0,
+        renewalAlarmDays: 0,
         currency: "USD",
         price: 199,
-        priceINR: 16616.50,
+        priceInINR: 16616.50,
         licenseKey: "FL-PROD-9876-5432-1098",
         username: "",
         password: "",
         downloadUrl: "https://image-line.com",
         customCategory: "",
+        createdAt: nowStr,
+        updatedAt: nowStr,
       },
       {
-        userId: currentUser.id,
         softwareName: "Tableau Desktop",
         category: "Data Analytics",
-        type: "Subscription",
+        licenseType: "Subscription",
         purchaseDate: "2024-03-01",
         renewalDate: "2024-12-31",
-        renewalAlarm: 15,
+        renewalAlarmDays: 15,
         currency: "USD",
         price: 70,
-        priceINR: 5845,
+        priceInINR: 5845,
         licenseKey: "",
         username: "raj.kumar@example.com",
         password: "TableauPass2024!",
         downloadUrl: "https://tableau.com/download",
         customCategory: "",
+        createdAt: nowStr,
+        updatedAt: nowStr,
       },
       {
-        userId: currentUser.id,
         softwareName: "JetBrains IntelliJ IDEA Ultimate",
         category: "Development",
-        type: "Subscription",
+        licenseType: "Subscription",
         purchaseDate: "2024-02-01",
         renewalDate: "2025-02-01",
-        renewalAlarm: 30,
+        renewalAlarmDays: 30,
         currency: "EURO",
         price: 149,
-        priceINR: 13588.80,
+        priceInINR: 13588.80,
         licenseKey: "IDEA-ULTIMATE-KEY-2024",
         username: "",
         password: "",
         downloadUrl: "https://jetbrains.com/idea",
         customCategory: "",
+        createdAt: nowStr,
+        updatedAt: nowStr,
       },
       {
-        userId: currentUser.id,
         softwareName: "Microsoft Office 365",
         category: "Productivity",
-        type: "Subscription",
+        licenseType: "Subscription",
         purchaseDate: "2024-01-01",
         renewalDate: "2025-01-01",
-        renewalAlarm: 30,
+        renewalAlarmDays: 30,
         currency: "INR",
         price: 4899,
-        priceINR: 4899,
+        priceInINR: 4899,
         licenseKey: "",
         username: "rajkumar.rao@hotmail.com",
         password: "Office365Pass!",
         downloadUrl: "https://office.com",
         customCategory: "",
+        createdAt: nowStr,
+        updatedAt: nowStr,
       },
     ];
 
-    sampleLicenses.forEach((license) => {
-      storage.addLicense({
-        ...license,
-        id: crypto.randomUUID(),
-      });
-    });
+    const currentLicenses = storage.getLicenses();
+    const newLicenses = sampleLicenses.map((license) => ({
+      ...license,
+      id: crypto.randomUUID(),
+    }));
 
-    calculateStats(currentUser);
+    storage.saveLicenses([...currentLicenses, ...newLicenses]);
+    calculateStats();
   };
 
   if (!mounted) return null;
