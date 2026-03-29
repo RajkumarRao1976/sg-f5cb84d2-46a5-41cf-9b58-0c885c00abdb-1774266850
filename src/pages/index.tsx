@@ -3,18 +3,161 @@ import { useEffect, useState } from "react";
 import { storage } from "@/lib/storage";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Shield, Key, Database, Download } from "lucide-react";
+import { Shield, Key, Database, Download, Sparkles } from "lucide-react";
 import Link from "next/link";
-import type { User } from "@/types";
+import type { User, License } from "@/types";
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [stats, setStats] = useState({
+    total: 0,
+    active: 0,
+    expiringSoon: 0,
+    totalSpent: 0,
+  });
 
   useEffect(() => {
     setMounted(true);
-    setCurrentUser(storage.getCurrentUser());
+    const user = storage.getCurrentUser();
+    setCurrentUser(user);
+    if (user) {
+      calculateStats(user);
+    }
   }, []);
+
+  const calculateStats = (user: User) => {
+    const licenses = storage.getLicenses(user.id);
+    const now = new Date();
+
+    const active = licenses.filter((l) => {
+      if (l.type === "Perpetual") return true;
+      if (l.renewalDate) {
+        const renewalDate = new Date(l.renewalDate);
+        return renewalDate > now;
+      }
+      return false;
+    }).length;
+
+    const expiringSoon = licenses.filter((l) => {
+      if (l.type === "Subscription" && l.renewalDate && l.renewalAlarm) {
+        const renewalDate = new Date(l.renewalDate);
+        const alarmDate = new Date(renewalDate.getTime() - l.renewalAlarm * 24 * 60 * 60 * 1000);
+        return alarmDate <= now && renewalDate > now;
+      }
+      return false;
+    }).length;
+
+    const totalSpent = licenses.reduce((sum, l) => sum + l.priceINR, 0);
+
+    setStats({
+      total: licenses.length,
+      active,
+      expiringSoon,
+      totalSpent,
+    });
+  };
+
+  const populateSampleData = () => {
+    if (!currentUser) return;
+
+    const sampleLicenses: Omit<License, "id">[] = [
+      {
+        userId: currentUser.id,
+        softwareName: "Adobe Premiere Pro",
+        category: "Video Editing",
+        type: "Subscription",
+        purchaseDate: "2024-01-15",
+        renewalDate: "2025-01-15",
+        renewalAlarm: 30,
+        currency: "USD",
+        price: 54.99,
+        priceINR: 4591.67,
+        licenseKey: "ABCD-1234-EFGH-5678",
+        username: "",
+        password: "",
+        downloadUrl: "https://adobe.com/premiere",
+        customCategory: "",
+      },
+      {
+        userId: currentUser.id,
+        softwareName: "FL Studio Producer Edition",
+        category: "Music Production",
+        type: "Perpetual",
+        purchaseDate: "2023-06-10",
+        renewalDate: "",
+        renewalAlarm: 0,
+        currency: "USD",
+        price: 199,
+        priceINR: 16616.50,
+        licenseKey: "FL-PROD-9876-5432-1098",
+        username: "",
+        password: "",
+        downloadUrl: "https://image-line.com",
+        customCategory: "",
+      },
+      {
+        userId: currentUser.id,
+        softwareName: "Tableau Desktop",
+        category: "Data Analytics",
+        type: "Subscription",
+        purchaseDate: "2024-03-01",
+        renewalDate: "2024-12-31",
+        renewalAlarm: 15,
+        currency: "USD",
+        price: 70,
+        priceINR: 5845,
+        licenseKey: "",
+        username: "raj.kumar@example.com",
+        password: "TableauPass2024!",
+        downloadUrl: "https://tableau.com/download",
+        customCategory: "",
+      },
+      {
+        userId: currentUser.id,
+        softwareName: "JetBrains IntelliJ IDEA Ultimate",
+        category: "Development",
+        type: "Subscription",
+        purchaseDate: "2024-02-01",
+        renewalDate: "2025-02-01",
+        renewalAlarm: 30,
+        currency: "EURO",
+        price: 149,
+        priceINR: 13588.80,
+        licenseKey: "IDEA-ULTIMATE-KEY-2024",
+        username: "",
+        password: "",
+        downloadUrl: "https://jetbrains.com/idea",
+        customCategory: "",
+      },
+      {
+        userId: currentUser.id,
+        softwareName: "Microsoft Office 365",
+        category: "Productivity",
+        type: "Subscription",
+        purchaseDate: "2024-01-01",
+        renewalDate: "2025-01-01",
+        renewalAlarm: 30,
+        currency: "INR",
+        price: 4899,
+        priceINR: 4899,
+        licenseKey: "",
+        username: "rajkumar.rao@hotmail.com",
+        password: "Office365Pass!",
+        downloadUrl: "https://office.com",
+        customCategory: "",
+      },
+    ];
+
+    sampleLicenses.forEach((license) => {
+      storage.addLicense({
+        ...license,
+        id: crypto.randomUUID(),
+      });
+    });
+
+    calculateStats(currentUser);
+  };
 
   if (!mounted) return null;
 
@@ -37,17 +180,27 @@ export default function Home() {
                 onClick={() => {
                   storage.setCurrentUser(null);
                   setCurrentUser(null);
-                }}>
-                
+                }}
+              >
                 Logout
               </Button>
             </div>
           </nav>
 
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-            <div className="mb-8">
-              <h2 className="text-3xl font-heading font-bold text-foreground mb-2">Welcome back, {currentUser.email}</h2>
-              <p className="text-muted-foreground">Manage your software licenses with ease</p>
+            <div className="mb-8 flex justify-between items-start">
+              <div>
+                <h2 className="text-3xl font-heading font-bold text-foreground mb-2">
+                  Welcome back, {currentUser.email}
+                </h2>
+                <p className="text-muted-foreground">Manage your software licenses with ease</p>
+              </div>
+              {stats.total === 0 && (
+                <Button onClick={populateSampleData} variant="outline" size="sm">
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Populate Sample Data
+                </Button>
+              )}
             </div>
 
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -56,7 +209,7 @@ export default function Home() {
                   <CardTitle className="text-sm font-medium text-muted-foreground">Total Licenses</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-3xl font-heading font-bold text-foreground">0</div>
+                  <div className="text-3xl font-heading font-bold text-foreground">{stats.total}</div>
                 </CardContent>
               </Card>
               <Card>
@@ -64,7 +217,7 @@ export default function Home() {
                   <CardTitle className="text-sm font-medium text-muted-foreground">Active</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-3xl font-heading font-bold text-green-success">0</div>
+                  <div className="text-3xl font-heading font-bold text-green-success">{stats.active}</div>
                 </CardContent>
               </Card>
               <Card>
@@ -72,7 +225,7 @@ export default function Home() {
                   <CardTitle className="text-sm font-medium text-muted-foreground">Expiring Soon</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-3xl font-heading font-bold text-amber-warning">0</div>
+                  <div className="text-3xl font-heading font-bold text-amber-warning">{stats.expiringSoon}</div>
                 </CardContent>
               </Card>
               <Card>
@@ -80,7 +233,9 @@ export default function Home() {
                   <CardTitle className="text-sm font-medium text-muted-foreground">Total Spent</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-3xl font-heading font-bold text-foreground">₹0.00</div>
+                  <div className="text-3xl font-heading font-bold text-foreground">
+                    ₹{stats.totalSpent.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -107,8 +262,8 @@ export default function Home() {
             </Card>
           </main>
         </div>
-      </>);
-
+      </>
+    );
   }
 
   return (
@@ -169,6 +324,6 @@ export default function Home() {
           </div>
         </div>
       </div>
-    </>);
-
+    </>
+  );
 }
