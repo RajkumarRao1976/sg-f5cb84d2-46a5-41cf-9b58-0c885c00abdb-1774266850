@@ -6,7 +6,8 @@ import { formatCurrency } from "@/lib/currency";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Shield, Plus, Download, Upload, Edit, Trash2, Calendar, Key, ExternalLink } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Shield, Plus, Download, Upload, Edit, Trash2, Calendar, Key, ExternalLink, Search, Filter } from "lucide-react";
 import Link from "next/link";
 import type { License, User } from "@/types";
 import { 
@@ -33,8 +34,11 @@ export default function LicensesPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [licenses, setLicenses] = useState<License[]>([]);
+  const [filteredLicenses, setFilteredLicenses] = useState<License[]>([]);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "expiring" | "expired">("all");
 
   useEffect(() => {
     setMounted(true);
@@ -44,8 +48,62 @@ export default function LicensesPage() {
       return;
     }
     setCurrentUser(user);
-    setLicenses(storage.getLicenses());
+    const allLicenses = storage.getLicenses();
+    setLicenses(allLicenses);
+    setFilteredLicenses(allLicenses);
   }, [router]);
+
+  useEffect(() => {
+    filterLicenses();
+  }, [searchQuery, statusFilter, licenses]);
+
+  const filterLicenses = () => {
+    let filtered = [...licenses];
+    const now = new Date();
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      filtered = filtered.filter((license) =>
+        license.softwareName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (license.customCategory || license.category).toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+
+    // Apply status filter
+    if (statusFilter !== "all") {
+      filtered = filtered.filter((license) => {
+        if (statusFilter === "active") {
+          if (license.licenseType === "Perpetual") return true;
+          if (license.renewalDate) {
+            const renewalDate = new Date(license.renewalDate);
+            return renewalDate > now;
+          }
+          return false;
+        }
+
+        if (statusFilter === "expiring") {
+          if (license.licenseType === "Subscription" && license.renewalDate && license.renewalAlarmDays) {
+            const renewalDate = new Date(license.renewalDate);
+            const alarmDate = new Date(renewalDate.getTime() - license.renewalAlarmDays * 24 * 60 * 60 * 1000);
+            return alarmDate <= now && renewalDate > now;
+          }
+          return false;
+        }
+
+        if (statusFilter === "expired") {
+          if (license.licenseType === "Subscription" && license.renewalDate) {
+            const renewalDate = new Date(license.renewalDate);
+            return renewalDate <= now;
+          }
+          return false;
+        }
+
+        return true;
+      });
+    }
+
+    setFilteredLicenses(filtered);
+  };
 
   const handleDelete = (id: string) => {
     const updatedLicenses = licenses.filter((l) => l.id !== id);
@@ -193,6 +251,55 @@ export default function LicensesPage() {
             </div>
           </div>
 
+          <Card className="mb-6">
+            <CardContent className="pt-6">
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search licenses by name or category..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button
+                    variant={statusFilter === "all" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setStatusFilter("all")}
+                  >
+                    All ({licenses.length})
+                  </Button>
+                  <Button
+                    variant={statusFilter === "active" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setStatusFilter("active")}
+                    className={statusFilter === "active" ? "" : "text-green-success border-green-success/30"}
+                  >
+                    Active
+                  </Button>
+                  <Button
+                    variant={statusFilter === "expiring" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setStatusFilter("expiring")}
+                    className={statusFilter === "expiring" ? "" : "text-amber-warning border-amber-warning/30"}
+                  >
+                    Expiring Soon
+                  </Button>
+                  <Button
+                    variant={statusFilter === "expired" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setStatusFilter("expired")}
+                    className={statusFilter === "expired" ? "" : "text-red-error border-red-error/30"}
+                  >
+                    Expired
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           {expiringLicenses.length > 0 && (
             <Card className="mb-6 border-amber-warning/50 bg-amber-warning/5">
               <CardHeader>
@@ -233,6 +340,25 @@ export default function LicensesPage() {
                 </Link>
               </CardContent>
             </Card>
+          ) : filteredLicenses.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12">
+                <Filter className="h-16 w-16 text-muted-foreground mb-4" />
+                <h3 className="text-xl font-heading font-semibold mb-2">No licenses found</h3>
+                <p className="text-muted-foreground mb-6 text-center">
+                  Try adjusting your search or filters
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setStatusFilter("all");
+                  }}
+                >
+                  Clear Filters
+                </Button>
+              </CardContent>
+            </Card>
           ) : (
             <Card>
               <Table>
@@ -248,12 +374,13 @@ export default function LicensesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {licenses.map((license) => (
+                  {filteredLicenses.map((license) => (
                     <TableRow key={license.id}>
                       <TableCell className="font-medium">{license.softwareName}</TableCell>
                       <TableCell>
                         <Badge variant="secondary">
                           {license.category === "Others" ? license.customCategory : license.category}
+                          {license.platform && ` - ${license.platform}`}
                         </Badge>
                       </TableCell>
                       <TableCell>
