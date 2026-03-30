@@ -8,6 +8,23 @@ import Link from "next/link";
 import type { User, License } from "@/types";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
+const CATEGORY_COLORS: Record<string, string> = {
+  "Music Production": "#8B5CF6",
+  "Video Editing": "#EF4444",
+  "Data Analytics": "#3B82F6",
+  "Development": "#10B981",
+  "Productivity": "#F59E0B",
+  "Mobile Management": "#EC4899",
+  "SDK Tool Kit": "#6366F1",
+  "Musical Instruments": "#14B8A6",
+  "MIDI Gear": "#A855F7",
+  "Music Hardware": "#F97316",
+  "Storage Devices": "#06B6D4",
+  "Workstation": "#84CC16",
+  "Monthly Subscriptions": "#F43F5E",
+  "Others": "#64748B",
+};
+
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -292,7 +309,10 @@ export default function Home() {
                       />
                       <Bar dataKey="amount" radius={[8, 8, 0, 0]}>
                         {categoryData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill="hsl(var(--blue-accent))" />
+                          <Cell 
+                            key={`cell-${index}`} 
+                            fill={CATEGORY_COLORS[entry.category] || "#3B82F6"} 
+                          />
                         ))}
                       </Bar>
                     </BarChart>

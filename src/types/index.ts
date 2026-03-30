@@ -6,6 +6,12 @@ export type LicenseCategory =
   | "Productivity"
   | "Mobile Management"
   | "SDK Tool Kit"
+  | "Musical Instruments"
+  | "MIDI Gear"
+  | "Music Hardware"
+  | "Storage Devices"
+  | "Workstation"
+  | "Monthly Subscriptions"
   | "Others";
 
 export type LicenseType = "Perpetual" | "Subscription";

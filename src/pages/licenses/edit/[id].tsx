@@ -215,6 +215,12 @@ export default function EditLicense() {
                         <SelectItem value="Productivity">Productivity</SelectItem>
                         <SelectItem value="Mobile Management">Mobile Management</SelectItem>
                         <SelectItem value="SDK Tool Kit">SDK Tool Kit</SelectItem>
+                        <SelectItem value="Musical Instruments">Musical Instruments</SelectItem>
+                        <SelectItem value="MIDI Gear">MIDI Gear</SelectItem>
+                        <SelectItem value="Music Hardware">Music Hardware</SelectItem>
+                        <SelectItem value="Storage Devices">Storage Devices</SelectItem>
+                        <SelectItem value="Workstation">Workstation</SelectItem>
+                        <SelectItem value="Monthly Subscriptions">Monthly Subscriptions</SelectItem>
                         <SelectItem value="Others">Others</SelectItem>
                       </SelectContent>
                     </Select>
