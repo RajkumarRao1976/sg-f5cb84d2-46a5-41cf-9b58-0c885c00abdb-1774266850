@@ -12,17 +12,21 @@ export type LicenseCategory =
   | "Storage Devices"
   | "Workstation"
   | "Monthly Subscriptions"
+  | "Mobile Application"
   | "Others";
 
 export type LicenseType = "Perpetual" | "Subscription";
 
 export type Currency = "USD" | "EURO" | "INR";
 
+export type MobilePlatform = "iOS" | "Android";
+
 export interface License {
   id: string;
   softwareName: string;
   category: LicenseCategory;
   customCategory?: string;
+  platform?: MobilePlatform;
   licenseType: LicenseType;
   licenseKey?: string;
   username?: string;

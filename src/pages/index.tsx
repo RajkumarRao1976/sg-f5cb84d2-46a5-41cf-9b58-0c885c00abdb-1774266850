@@ -22,6 +22,9 @@ const CATEGORY_COLORS: Record<string, string> = {
   "Storage Devices": "#06B6D4",
   "Workstation": "#84CC16",
   "Monthly Subscriptions": "#F43F5E",
+  "Mobile Application": "#8B5CF6",
+  "Mobile Application - iOS": "#A78BFA",
+  "Mobile Application - Android": "#10B981",
   "Others": "#64748B",
 };
 
@@ -72,7 +75,10 @@ export default function Home() {
     // Calculate spending by category
     const categorySpending: Record<string, number> = {};
     licenses.forEach((l) => {
-      const cat = l.customCategory || l.category;
+      let cat = l.customCategory || l.category;
+      if (l.category === "Mobile Application" && l.platform) {
+        cat = `Mobile Application - ${l.platform}`;
+      }
       categorySpending[cat] = (categorySpending[cat] || 0) + (l.priceInINR || 0);
     });
 

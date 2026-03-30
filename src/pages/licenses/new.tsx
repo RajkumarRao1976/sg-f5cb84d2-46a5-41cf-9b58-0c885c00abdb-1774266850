@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Shield, ArrowLeft, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import type { License, LicenseCategory, LicenseType, Currency, User } from "@/types";
+import type { License, LicenseCategory, LicenseType, Currency, User, MobilePlatform } from "@/types";
 
 export default function NewLicense() {
   const router = useRouter();
@@ -24,6 +24,7 @@ export default function NewLicense() {
     softwareName: "",
     category: "" as LicenseCategory | "",
     customCategory: "",
+    platform: "" as "iOS" | "Android" | "",
     licenseType: "Perpetual" as LicenseType,
     licenseKey: "",
     username: "",
@@ -65,6 +66,11 @@ export default function NewLicense() {
       return;
     }
 
+    if (formData.category === "Mobile Application" && !formData.platform) {
+      setError("Platform (iOS or Android) is required for Mobile Application");
+      return;
+    }
+
     if (formData.licenseType === "Subscription" && !formData.renewalDate) {
       setError("Renewal date is required for subscription licenses");
       return;
@@ -87,6 +93,7 @@ export default function NewLicense() {
       softwareName: formData.softwareName.trim(),
       category: formData.category,
       customCategory: formData.category === "Others" ? formData.customCategory.trim() : undefined,
+      platform: formData.category === "Mobile Application" ? formData.platform as MobilePlatform : undefined,
       licenseType: formData.licenseType,
       licenseKey: formData.licenseKey.trim() || undefined,
       username: formData.username.trim() || undefined,
@@ -193,6 +200,7 @@ export default function NewLicense() {
                         <SelectItem value="Storage Devices">Storage Devices</SelectItem>
                         <SelectItem value="Workstation">Workstation</SelectItem>
                         <SelectItem value="Monthly Subscriptions">Monthly Subscriptions</SelectItem>
+                        <SelectItem value="Mobile Application">Mobile Application</SelectItem>
                         <SelectItem value="Others">Others</SelectItem>
                       </SelectContent>
                     </Select>
@@ -209,6 +217,25 @@ export default function NewLicense() {
                       onChange={(e) => setFormData({ ...formData, customCategory: e.target.value })}
                       required
                     />
+                  </div>
+                )}
+
+                {formData.category === "Mobile Application" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="platform">Platform *</Label>
+                    <Select
+                      value={formData.platform}
+                      onValueChange={(value) => setFormData({ ...formData, platform: value as "iOS" | "Android" })}
+                      required
+                    >
+                      <SelectTrigger id="platform">
+                        <SelectValue placeholder="Select platform" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="iOS">iOS</SelectItem>
+                        <SelectItem value="Android">Android</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
 
