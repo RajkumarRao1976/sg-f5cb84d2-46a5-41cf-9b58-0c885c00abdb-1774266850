@@ -46,6 +46,8 @@ export interface User {
   id: string;
   email: string;
   password: string;
+  emailVerified: boolean;
+  notificationEmail: string;
   twoFASecret?: string;
   twoFAEnabled: boolean;
   createdAt: string;
