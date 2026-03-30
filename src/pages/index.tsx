@@ -38,6 +38,7 @@ export default function Home() {
     totalSpent: 0,
   });
   const [categoryData, setCategoryData] = useState<Array<{ category: string; amount: number }>>([]);
+  const [expiringLicenses, setExpiringLicenses] = useState<License[]>([]);
 
   useEffect(() => {
     setMounted(true);
@@ -45,8 +46,48 @@ export default function Home() {
     setCurrentUser(user);
     if (user) {
       calculateStats();
+      checkExpiringLicenses();
     }
   }, []);
+
+  const checkExpiringLicenses = () => {
+    const licenses = storage.getLicenses();
+    const now = new Date();
+    
+    const expiring = licenses.filter((l) => {
+      if (l.licenseType === "Subscription" && l.renewalDate && l.renewalAlarmDays) {
+        const renewalDate = new Date(l.renewalDate);
+        const alarmDate = new Date(renewalDate.getTime() - l.renewalAlarmDays * 24 * 60 * 60 * 1000);
+        return alarmDate <= now && renewalDate > now;
+      }
+      return false;
+    });
+
+    setExpiringLicenses(expiring);
+
+    // Send notification email (simulated)
+    if (expiring.length > 0 && currentUser) {
+      sendExpiryNotification(expiring, currentUser.notificationEmail);
+    }
+  };
+
+  const sendExpiryNotification = (licenses: License[], email: string) => {
+    if (licenses.length === 1) {
+      const license = licenses[0];
+      const daysUntilExpiry = Math.ceil((new Date(license.renewalDate!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+      console.log(`📧 Email notification sent to ${email}:`);
+      console.log(`Subject: License Expiring Soon - ${license.softwareName}`);
+      console.log(`Your ${license.softwareName} license will expire in ${daysUntilExpiry} days on ${new Date(license.renewalDate!).toLocaleDateString()}.`);
+    } else {
+      console.log(`📧 Email notification sent to ${email}:`);
+      console.log(`Subject: ${licenses.length} Licenses Expiring Soon`);
+      console.log(`The following licenses are expiring soon:`);
+      licenses.forEach((l) => {
+        const daysUntilExpiry = Math.ceil((new Date(l.renewalDate!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+        console.log(`- ${l.softwareName} (expires in ${daysUntilExpiry} days)`);
+      });
+    }
+  };
 
   const calculateStats = () => {
     const licenses = storage.getLicenses();
@@ -219,15 +260,22 @@ export default function Home() {
                   <p className="text-xs text-muted-foreground">Developer: Rajkumar Rao.R</p>
                 </div>
               </div>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  storage.setCurrentUser(null);
-                  setCurrentUser(null);
-                }}
-              >
-                Logout
-              </Button>
+              <div className="flex items-center gap-3">
+                <Link href="/profile">
+                  <Button variant="outline" size="sm">
+                    Profile
+                  </Button>
+                </Link>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    storage.setCurrentUser(null);
+                    setCurrentUser(null);
+                  }}
+                >
+                  Logout
+                </Button>
+              </div>
             </div>
           </nav>
 
@@ -283,6 +331,46 @@ export default function Home() {
                 </CardContent>
               </Card>
             </div>
+
+            {expiringLicenses.length > 0 && (
+              <Card className="mb-8 border-amber-warning bg-amber-warning/5">
+                <CardHeader>
+                  <CardTitle className="font-heading text-amber-warning">
+                    ⚠️ {expiringLicenses.length === 1 ? "License Expiring Soon" : `${expiringLicenses.length} Licenses Expiring Soon`}
+                  </CardTitle>
+                  <CardDescription>
+                    {expiringLicenses.length === 1 
+                      ? "Action required to renew your license"
+                      : "Multiple licenses require your attention"}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {expiringLicenses.map((license) => {
+                      const daysUntilExpiry = Math.ceil((new Date(license.renewalDate!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                      return (
+                        <div key={license.id} className="flex justify-between items-center p-3 bg-card rounded-lg border border-amber-warning/20">
+                          <div>
+                            <p className="font-medium text-foreground">{license.softwareName}</p>
+                            <p className="text-sm text-muted-foreground">
+                              Expires in {daysUntilExpiry} days ({new Date(license.renewalDate!).toLocaleDateString()})
+                            </p>
+                          </div>
+                          <Link href={`/licenses/edit/${license.id}`}>
+                            <Button variant="outline" size="sm">
+                              Update
+                            </Button>
+                          </Link>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-4 pt-4 border-t text-sm text-muted-foreground">
+                    📧 Email notifications sent to: {currentUser.notificationEmail}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             <Card className="mb-8">
               <CardHeader>
