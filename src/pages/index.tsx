@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Shield, Key, Database, Download, Sparkles } from "lucide-react";
+import { Shield, Key, Database as DatabaseIcon, Download, Sparkles } from "lucide-react";
 import Link from "next/link";
 import type { Database } from "@/integrations/supabase/types";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
@@ -327,7 +327,7 @@ export default function Home() {
               </Link>
               <Link href="/licenses">
                 <Button variant="outline" className="w-full" size="lg">
-                  <Database className="mr-2 h-5 w-5" />
+                  <DatabaseIcon className="mr-2 h-5 w-5" />
                   View All Licenses
                 </Button>
               </Link>
