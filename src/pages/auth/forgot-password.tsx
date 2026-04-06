@@ -28,33 +28,47 @@ export default function ForgotPassword() {
     setSuccess("");
     setLoading(true);
 
-    // Check if user exists
-    const users = storage.getUsers();
-    console.log("🔍 All registered users:", users);
-    console.log("🔍 Looking for email:", email);
+    // Debug: Check localStorage directly
+    console.log("=== FORGOT PASSWORD DEBUG ===");
+    const rawUsers = localStorage.getItem("users");
+    console.log("Raw users data from localStorage:", rawUsers);
     
-    const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    const users = storage.getUsers();
+    console.log("Parsed users:", users);
+    console.log("Number of users found:", users.length);
+    console.log("All registered emails:", users.map(u => u.email));
+    console.log("Email being searched:", email);
 
-    if (!user) {
-      console.log("❌ User not found");
-      console.log("📧 Available emails:", users.map(u => u.email));
-      setError(`No account found with this email address. Registered emails: ${users.map(u => u.email).join(", ")}`);
+    if (users.length === 0) {
+      setError("No users found in system. Please check /emergency-export to see your data.");
       setLoading(false);
       return;
     }
 
-    console.log("✅ User found:", user.email);
+    // Try case-insensitive match
+    const user = users.find((u) => u.email.toLowerCase().trim() === email.toLowerCase().trim());
+    
+    console.log("User lookup result:", user ? "FOUND" : "NOT FOUND");
+
+    if (!user) {
+      console.log("❌ Email not found in registered users");
+      const availableEmails = users.map(u => u.email).join(", ");
+      setError(`No account found. Available emails in system: ${availableEmails}. Visit /emergency-export to download your data with passwords.`);
+      setLoading(false);
+      return;
+    }
+
+    console.log("✅ User found:", user);
 
     // Generate 6-digit OTP
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
     setGeneratedOTP(otpCode);
 
-    setSuccess(`OTP sent to ${email}. Check your email.`);
+    setSuccess(`Verification code sent! Use this OTP: ${otpCode}`);
     setStep("otp");
     setLoading(false);
 
-    // Simulate email sending (in real app, this would be an API call)
-    console.log(`📧 Password Reset OTP: ${otpCode} sent to ${email}`);
+    console.log(`📧 OTP Code: ${otpCode}`);
   };
 
   const handleVerifyOTP = (e: FormEvent) => {
