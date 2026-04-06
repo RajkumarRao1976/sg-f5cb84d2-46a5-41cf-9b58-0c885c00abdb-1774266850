@@ -1,7 +1,6 @@
 import { SEO } from "@/components/SEO";
 import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/router";
-import { storage } from "@/lib/storage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,11 +8,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Shield, User as UserIcon, Mail, AlertCircle, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import type { User } from "@/types";
+import type { Database } from "@/integrations/supabase/types";
+import { authService } from "@/services/authService";
+import { profileService } from "@/services/profileService";
+
+type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 
 export default function Profile() {
   const router = useRouter();
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState("");
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [mounted, setMounted] = useState(false);
   const [notificationEmail, setNotificationEmail] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -25,54 +30,51 @@ export default function Profile() {
 
   useEffect(() => {
     setMounted(true);
-    const user = storage.getCurrentUser();
-    if (!user) {
+    checkAuthAndLoadProfile();
+  }, []);
+
+  const checkAuthAndLoadProfile = async () => {
+    const { session } = await authService.getSession();
+    if (!session) {
       router.push("/auth/login");
       return;
     }
-    setCurrentUser(user);
-    setNotificationEmail(user.notificationEmail);
-  }, [router]);
 
-  const handleUpdateEmail = (e: FormEvent) => {
-    e.preventDefault();
-    setError("");
-    setSuccess("");
+    setUserId(session.user.id);
+    setUserEmail(session.user.email || "");
 
-    if (!currentUser) return;
-
-    const users = storage.getUsers();
-    const userIndex = users.findIndex((u) => u.id === currentUser.id);
-
-    if (userIndex === -1) {
-      setError("User not found");
-      return;
+    const { data: profileData } = await profileService.getProfile(session.user.id);
+    if (profileData) {
+      setProfile(profileData);
+      setNotificationEmail(profileData.notification_email || session.user.email || "");
     }
-
-    users[userIndex] = {
-      ...users[userIndex],
-      notificationEmail: notificationEmail.trim(),
-    };
-
-    storage.saveUsers(users);
-    storage.setCurrentUser(users[userIndex]);
-    setCurrentUser(users[userIndex]);
-    setSuccess("Notification email updated successfully!");
   };
 
-  const handleUpdatePassword = (e: FormEvent) => {
+  const handleUpdateEmail = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
     setSuccess("");
     setLoading(true);
 
-    if (!currentUser) return;
+    if (!userId) return;
 
-    if (currentPassword !== currentUser.password) {
-      setError("Current password is incorrect");
+    const { error: updateError } = await profileService.updateNotificationEmail(userId, notificationEmail.trim());
+
+    if (updateError) {
+      setError(updateError.message || "Failed to update notification email");
       setLoading(false);
       return;
     }
+
+    setSuccess("Notification email updated successfully!");
+    setLoading(false);
+  };
+
+  const handleUpdatePassword = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setSuccess("");
+    setLoading(true);
 
     if (newPassword.length < 8) {
       setError("New password must be at least 8 characters");
@@ -86,32 +88,36 @@ export default function Profile() {
       return;
     }
 
-    const users = storage.getUsers();
-    const userIndex = users.findIndex((u) => u.id === currentUser.id);
-
-    if (userIndex === -1) {
-      setError("User not found");
+    // Verify current password first
+    const { error: signInError } = await authService.signIn(userEmail, currentPassword);
+    if (signInError) {
+      setError("Current password is incorrect");
       setLoading(false);
       return;
     }
 
-    users[userIndex] = {
-      ...users[userIndex],
-      password: newPassword,
-    };
-
-    storage.saveUsers(users);
-    storage.setCurrentUser(users[userIndex]);
-    setCurrentUser(users[userIndex]);
+    // Update password through Supabase auth
+    const { error: updateError } = await authService.resetPassword(userEmail);
     
+    if (updateError) {
+      setError("Failed to update password. Please try the forgot password flow.");
+      setLoading(false);
+      return;
+    }
+
     setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
-    setSuccess("Password updated successfully!");
+    setSuccess("Password reset email sent! Check your inbox to complete the password change.");
     setLoading(false);
   };
 
-  if (!mounted || !currentUser) return null;
+  const handleLogout = async () => {
+    await authService.signOut();
+    router.push("/auth/login");
+  };
+
+  if (!mounted || !userId) return null;
 
   return (
     <>
@@ -167,16 +173,16 @@ export default function Profile() {
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label>Login Email</Label>
-                  <Input value={currentUser.email} disabled />
+                  <Input value={userEmail} disabled />
                   <p className="text-xs text-muted-foreground">Your login email cannot be changed</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Account Created</Label>
-                  <Input value={new Date(currentUser.createdAt).toLocaleDateString()} disabled />
+                  <Input value={profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : "N/A"} disabled />
                 </div>
                 <div className="space-y-2">
                   <Label>2FA Status</Label>
-                  <Input value={currentUser.twoFAEnabled ? "Enabled" : "Disabled"} disabled />
+                  <Input value={profile?.two_fa_enabled ? "Enabled" : "Disabled"} disabled />
                 </div>
               </CardContent>
             </Card>
@@ -204,8 +210,8 @@ export default function Profile() {
                       Expiry alerts will be sent to this email address
                     </p>
                   </div>
-                  <Button type="submit" className="w-full">
-                    Update Notification Email
+                  <Button type="submit" className="w-full" disabled={loading}>
+                    {loading ? "Updating..." : "Update Notification Email"}
                   </Button>
                 </form>
               </CardContent>

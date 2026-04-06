@@ -1,7 +1,6 @@
 import { SEO } from "@/components/SEO";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
-import { storage } from "@/lib/storage";
 import { formatCurrency } from "@/lib/currency";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Shield, Plus, Download, Upload, Edit, Trash2, Calendar, Key, ExternalLink, Search, Filter } from "lucide-react";
 import Link from "next/link";
-import type { License, User } from "@/types";
+import type { Database } from "@/integrations/supabase/types";
 import { 
   Table, 
   TableBody, 
@@ -29,10 +28,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import * as XLSX from "xlsx";
+import { authService } from "@/services/authService";
+import { licenseService } from "@/services/licenseService";
+
+type License = Database["public"]["Tables"]["licenses"]["Row"];
 
 export default function LicensesPage() {
   const router = useRouter();
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [licenses, setLicenses] = useState<License[]>([]);
   const [filteredLicenses, setFilteredLicenses] = useState<License[]>([]);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -42,16 +45,24 @@ export default function LicensesPage() {
 
   useEffect(() => {
     setMounted(true);
-    const user = storage.getCurrentUser();
-    if (!user) {
+    checkAuthAndLoadLicenses();
+  }, []);
+
+  const checkAuthAndLoadLicenses = async () => {
+    const { session } = await authService.getSession();
+    if (!session) {
       router.push("/auth/login");
       return;
     }
-    setCurrentUser(user);
-    const allLicenses = storage.getLicenses();
+    setUserId(session.user.id);
+    await loadLicenses(session.user.id);
+  };
+
+  const loadLicenses = async (uid: string) => {
+    const { data: allLicenses } = await licenseService.getLicenses(uid);
     setLicenses(allLicenses);
     setFilteredLicenses(allLicenses);
-  }, [router]);
+  };
 
   useEffect(() => {
     filterLicenses();
@@ -64,8 +75,8 @@ export default function LicensesPage() {
     // Apply search filter
     if (searchQuery.trim()) {
       filtered = filtered.filter((license) =>
-        license.softwareName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (license.customCategory || license.category).toLowerCase().includes(searchQuery.toLowerCase())
+        license.software_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (license.custom_category || license.category).toLowerCase().includes(searchQuery.toLowerCase())
       );
     }
 
@@ -73,26 +84,26 @@ export default function LicensesPage() {
     if (statusFilter !== "all") {
       filtered = filtered.filter((license) => {
         if (statusFilter === "active") {
-          if (license.licenseType === "Perpetual") return true;
-          if (license.renewalDate) {
-            const renewalDate = new Date(license.renewalDate);
+          if (license.license_type === "Perpetual") return true;
+          if (license.renewal_date) {
+            const renewalDate = new Date(license.renewal_date);
             return renewalDate > now;
           }
           return false;
         }
 
         if (statusFilter === "expiring") {
-          if (license.licenseType === "Subscription" && license.renewalDate && license.renewalAlarmDays) {
-            const renewalDate = new Date(license.renewalDate);
-            const alarmDate = new Date(renewalDate.getTime() - license.renewalAlarmDays * 24 * 60 * 60 * 1000);
+          if (license.license_type === "Subscription" && license.renewal_date && license.renewal_alarm_days) {
+            const renewalDate = new Date(license.renewal_date);
+            const alarmDate = new Date(renewalDate.getTime() - license.renewal_alarm_days * 24 * 60 * 60 * 1000);
             return alarmDate <= now && renewalDate > now;
           }
           return false;
         }
 
         if (statusFilter === "expired") {
-          if (license.licenseType === "Subscription" && license.renewalDate) {
-            const renewalDate = new Date(license.renewalDate);
+          if (license.license_type === "Subscription" && license.renewal_date) {
+            const renewalDate = new Date(license.renewal_date);
             return renewalDate <= now;
           }
           return false;
@@ -105,28 +116,32 @@ export default function LicensesPage() {
     setFilteredLicenses(filtered);
   };
 
-  const handleDelete = (id: string) => {
-    const updatedLicenses = licenses.filter((l) => l.id !== id);
-    storage.saveLicenses(updatedLicenses);
-    setLicenses(updatedLicenses);
+  const handleDelete = async (id: string) => {
+    if (!userId) return;
+    
+    const { error } = await licenseService.deleteLicense(id, userId);
+    if (!error) {
+      await loadLicenses(userId);
+    }
     setDeleteId(null);
   };
 
   const handleExport = () => {
     const exportData = licenses.map((license) => ({
-      "Software Name": license.softwareName,
-      "Category": license.category === "Others" ? license.customCategory : license.category,
-      "License Type": license.licenseType,
-      "License Key": license.licenseKey || "",
+      "Software Name": license.software_name,
+      "Category": license.category === "Others" ? license.custom_category : license.category,
+      "Platform": license.platform || "",
+      "License Type": license.license_type,
+      "License Key": license.license_key || "",
       "Username": license.username || "",
       "Password": license.password || "",
-      "Download URL": license.downloadUrl || "",
-      "Purchase Date": license.purchaseDate,
-      "Renewal Date": license.renewalDate || "",
-      "Renewal Alarm (Days)": license.renewalAlarmDays || "",
+      "Download URL": license.download_url || "",
+      "Purchase Date": license.purchase_date,
+      "Renewal Date": license.renewal_date || "",
+      "Renewal Alarm (Days)": license.renewal_alarm_days || "",
       "Price": license.price,
       "Currency": license.currency,
-      "Price in INR": license.priceInINR,
+      "Price in INR": license.price_inr,
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
@@ -135,41 +150,42 @@ export default function LicensesPage() {
     XLSX.writeFile(workbook, `LicenseVault_Export_${new Date().toISOString().split("T")[0]}.xlsx`);
   };
 
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!userId) return;
+    
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: "array" });
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-        const importedLicenses: License[] = jsonData.map((row: any) => ({
-          id: crypto.randomUUID(),
-          softwareName: row["Software Name"] || "",
-          category: row["Category"] === "Others" ? "Others" : row["Category"],
-          customCategory: row["Category"] === "Others" ? row["Category"] : undefined,
-          licenseType: row["License Type"] || "Perpetual",
-          licenseKey: row["License Key"] || undefined,
-          username: row["Username"] || undefined,
-          password: row["Password"] || undefined,
-          downloadUrl: row["Download URL"] || undefined,
-          purchaseDate: row["Purchase Date"] || new Date().toISOString().split("T")[0],
-          renewalDate: row["Renewal Date"] || undefined,
-          renewalAlarmDays: row["Renewal Alarm (Days)"] || undefined,
-          price: Number(row["Price"]) || 0,
-          currency: row["Currency"] || "INR",
-          priceInINR: Number(row["Price in INR"]) || 0,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        }));
+        for (const row: any of jsonData) {
+          await licenseService.createLicense({
+            user_id: userId,
+            software_name: row["Software Name"] || "",
+            category: row["Category"] || "Others",
+            custom_category: row["Category"] === "Others" ? row["Category"] : null,
+            platform: row["Platform"] || null,
+            license_type: row["License Type"] || "Perpetual",
+            license_key: row["License Key"] || null,
+            username: row["Username"] || null,
+            password: row["Password"] || null,
+            download_url: row["Download URL"] || null,
+            purchase_date: row["Purchase Date"] || new Date().toISOString().split("T")[0],
+            renewal_date: row["Renewal Date"] || null,
+            renewal_alarm_days: row["Renewal Alarm (Days)"] || null,
+            price: Number(row["Price"]) || 0,
+            currency: row["Currency"] || "INR",
+            price_inr: Number(row["Price in INR"]) || 0,
+          });
+        }
 
-        const updatedLicenses = [...licenses, ...importedLicenses];
-        storage.saveLicenses(updatedLicenses);
-        setLicenses(updatedLicenses);
+        await loadLicenses(userId);
       } catch (error) {
         console.error("Import failed:", error);
         alert("Failed to import file. Please check the format.");
@@ -180,15 +196,20 @@ export default function LicensesPage() {
 
   const getExpiringLicenses = () => {
     return licenses.filter((license) => {
-      if (license.licenseType === "Perpetual" || !license.renewalDate) return false;
-      const renewalDate = new Date(license.renewalDate);
+      if (license.license_type === "Perpetual" || !license.renewal_date) return false;
+      const renewalDate = new Date(license.renewal_date);
       const today = new Date();
       const daysUntilRenewal = Math.ceil((renewalDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-      return daysUntilRenewal <= (license.renewalAlarmDays || 30) && daysUntilRenewal >= 0;
+      return daysUntilRenewal <= (license.renewal_alarm_days || 30) && daysUntilRenewal >= 0;
     });
   };
 
-  if (!mounted || !currentUser) return null;
+  const handleLogout = async () => {
+    await authService.signOut();
+    router.push("/auth/login");
+  };
+
+  if (!mounted || !userId) return null;
 
   const expiringLicenses = getExpiringLicenses();
 
@@ -205,10 +226,7 @@ export default function LicensesPage() {
             <div className="flex gap-2">
               <Button
                 variant="outline"
-                onClick={() => {
-                  storage.setCurrentUser(null);
-                  router.push("/");
-                }}
+                onClick={handleLogout}
               >
                 Logout
               </Button>
@@ -315,8 +333,8 @@ export default function LicensesPage() {
                 <div className="space-y-2">
                   {expiringLicenses.map((license) => (
                     <div key={license.id} className="flex justify-between items-center p-2 bg-card rounded">
-                      <span className="font-medium">{license.softwareName}</span>
-                      <span className="text-sm text-muted-foreground">{license.renewalDate}</span>
+                      <span className="font-medium">{license.software_name}</span>
+                      <span className="text-sm text-muted-foreground">{license.renewal_date}</span>
                     </div>
                   ))}
                 </div>
@@ -376,30 +394,30 @@ export default function LicensesPage() {
                 <TableBody>
                   {filteredLicenses.map((license) => (
                     <TableRow key={license.id}>
-                      <TableCell className="font-medium">{license.softwareName}</TableCell>
+                      <TableCell className="font-medium">{license.software_name}</TableCell>
                       <TableCell>
                         <Badge variant="secondary">
-                          {license.category === "Others" ? license.customCategory : license.category}
+                          {license.category === "Others" ? license.custom_category : license.category}
                           {license.platform && ` - ${license.platform}`}
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={license.licenseType === "Perpetual" ? "default" : "outline"}>
-                          {license.licenseType}
+                        <Badge variant={license.license_type === "Perpetual" ? "default" : "outline"}>
+                          {license.license_type}
                         </Badge>
                       </TableCell>
-                      <TableCell>{formatCurrency(license.priceInINR, "INR")}</TableCell>
-                      <TableCell>{license.purchaseDate}</TableCell>
-                      <TableCell>{license.renewalDate || "—"}</TableCell>
+                      <TableCell>{formatCurrency(license.price_inr, "INR")}</TableCell>
+                      <TableCell>{license.purchase_date}</TableCell>
+                      <TableCell>{license.renewal_date || "—"}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
-                          {license.downloadUrl && (
+                          {license.download_url && (
                             <Button
                               size="icon"
                               variant="ghost"
                               asChild
                             >
-                              <a href={license.downloadUrl} target="_blank" rel="noopener noreferrer">
+                              <a href={license.download_url} target="_blank" rel="noopener noreferrer">
                                 <ExternalLink className="h-4 w-4" />
                               </a>
                             </Button>

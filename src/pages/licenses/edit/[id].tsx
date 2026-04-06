@@ -1,7 +1,6 @@
 import { SEO } from "@/components/SEO";
 import { useState, FormEvent, useEffect } from "react";
 import { useRouter } from "next/router";
-import { storage } from "@/lib/storage";
 import { convertToINR } from "@/lib/currency";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,22 +11,27 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Shield, ArrowLeft, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import type { License, LicenseCategory, LicenseType, Currency, User, MobilePlatform } from "@/types";
+import type { Database } from "@/integrations/supabase/types";
+import { authService } from "@/services/authService";
+import { licenseService } from "@/services/licenseService";
+
+type License = Database["public"]["Tables"]["licenses"]["Row"];
 
 export default function EditLicense() {
   const router = useRouter();
   const { id } = router.query;
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const [license, setLicense] = useState<License | null>(null);
   
   const [formData, setFormData] = useState({
     softwareName: "",
-    category: "" as LicenseCategory | "",
+    category: "",
     customCategory: "",
-    platform: "" as "iOS" | "Android" | "",
-    licenseType: "Perpetual" as LicenseType,
+    platform: "",
+    licenseType: "Perpetual" as "Perpetual" | "Subscription",
     licenseKey: "",
     username: "",
     password: "",
@@ -36,116 +40,136 @@ export default function EditLicense() {
     renewalDate: "",
     renewalAlarmDays: 30,
     price: "",
-    currency: "INR" as Currency,
+    currency: "INR" as "USD" | "EURO" | "INR",
   });
 
   useEffect(() => {
     setMounted(true);
-    const user = storage.getCurrentUser();
-    if (!user) {
+    checkAuthAndLoadLicense();
+  }, [id]);
+
+  const checkAuthAndLoadLicense = async () => {
+    const { session } = await authService.getSession();
+    if (!session) {
       router.push("/auth/login");
       return;
     }
-    setCurrentUser(user);
+    setUserId(session.user.id);
 
     if (id && typeof id === "string") {
-      const licenses = storage.getLicenses();
-      const foundLicense = licenses.find((l) => l.id === id);
-      if (foundLicense) {
-        setLicense(foundLicense);
-        setFormData({
-          softwareName: foundLicense.softwareName,
-          category: foundLicense.category,
-          customCategory: foundLicense.customCategory || "",
-          platform: foundLicense.platform || "",
-          licenseType: foundLicense.licenseType,
-          licenseKey: foundLicense.licenseKey || "",
-          username: foundLicense.username || "",
-          password: foundLicense.password || "",
-          downloadUrl: foundLicense.downloadUrl || "",
-          purchaseDate: foundLicense.purchaseDate,
-          renewalDate: foundLicense.renewalDate || "",
-          renewalAlarmDays: foundLicense.renewalAlarmDays || 30,
-          price: foundLicense.price.toString(),
-          currency: foundLicense.currency,
-        });
-      } else {
+      const { data: foundLicense, error } = await licenseService.getLicenseById(id, session.user.id);
+      
+      if (error || !foundLicense) {
         router.push("/licenses");
+        return;
       }
-    }
-  }, [id, router]);
 
-  const handleSubmit = (e: FormEvent) => {
+      setLicense(foundLicense);
+      setFormData({
+        softwareName: foundLicense.software_name,
+        category: foundLicense.category,
+        customCategory: foundLicense.custom_category || "",
+        platform: foundLicense.platform || "",
+        licenseType: foundLicense.license_type,
+        licenseKey: foundLicense.license_key || "",
+        username: foundLicense.username || "",
+        password: foundLicense.password || "",
+        downloadUrl: foundLicense.download_url || "",
+        purchaseDate: foundLicense.purchase_date,
+        renewalDate: foundLicense.renewal_date || "",
+        renewalAlarmDays: foundLicense.renewal_alarm_days || 30,
+        price: foundLicense.price.toString(),
+        currency: foundLicense.currency,
+      });
+    }
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
+    setLoading(true);
 
     if (!formData.softwareName.trim()) {
       setError("Software name is required");
+      setLoading(false);
       return;
     }
 
     if (!formData.category) {
       setError("Category is required");
+      setLoading(false);
       return;
     }
 
     if (formData.category === "Others" && !formData.customCategory.trim()) {
       setError("Custom category is required when 'Others' is selected");
+      setLoading(false);
       return;
     }
 
     if (formData.category === "Mobile Application" && !formData.platform) {
       setError("Platform (iOS or Android) is required for Mobile Application");
+      setLoading(false);
       return;
     }
 
     if (formData.licenseType === "Subscription" && !formData.renewalDate) {
       setError("Renewal date is required for subscription licenses");
+      setLoading(false);
       return;
     }
 
     if (!formData.price || Number(formData.price) <= 0) {
       setError("Valid price is required");
+      setLoading(false);
       return;
     }
 
     if (formData.licenseKey && formData.licenseKey.length > 3000) {
       setError("License key cannot exceed 3000 characters");
+      setLoading(false);
       return;
     }
 
     const priceInINR = convertToINR(Number(formData.price), formData.currency);
 
-    const updatedLicense: License = {
-      ...license!,
-      softwareName: formData.softwareName.trim(),
-      category: formData.category,
-      customCategory: formData.category === "Others" ? formData.customCategory.trim() : undefined,
-      platform: formData.category === "Mobile Application" ? formData.platform as MobilePlatform : undefined,
-      licenseType: formData.licenseType,
-      licenseKey: formData.licenseKey.trim() || undefined,
-      username: formData.username.trim() || undefined,
-      password: formData.password.trim() || undefined,
-      downloadUrl: formData.downloadUrl.trim() || undefined,
-      purchaseDate: formData.purchaseDate,
-      renewalDate: formData.licenseType === "Subscription" ? formData.renewalDate : undefined,
-      renewalAlarmDays: formData.licenseType === "Subscription" ? formData.renewalAlarmDays : undefined,
-      price: Number(formData.price),
-      currency: formData.currency,
-      priceInINR,
-      updatedAt: new Date().toISOString(),
-    };
+    const { error: updateError } = await licenseService.updateLicense(
+      id as string,
+      userId!,
+      {
+        software_name: formData.softwareName.trim(),
+        category: formData.category,
+        custom_category: formData.category === "Others" ? formData.customCategory.trim() : null,
+        platform: formData.category === "Mobile Application" ? formData.platform : null,
+        license_type: formData.licenseType,
+        license_key: formData.licenseKey.trim() || null,
+        username: formData.username.trim() || null,
+        password: formData.password.trim() || null,
+        download_url: formData.downloadUrl.trim() || null,
+        purchase_date: formData.purchaseDate,
+        renewal_date: formData.licenseType === "Subscription" ? formData.renewalDate : null,
+        renewal_alarm_days: formData.licenseType === "Subscription" ? formData.renewalAlarmDays : null,
+        price: Number(formData.price),
+        currency: formData.currency,
+        price_inr: priceInINR,
+      }
+    );
 
-    const licenses = storage.getLicenses();
-    const index = licenses.findIndex((l) => l.id === id);
-    if (index !== -1) {
-      licenses[index] = updatedLicense;
-      storage.saveLicenses(licenses);
-      router.push("/licenses");
+    if (updateError) {
+      setError(updateError.message || "Failed to update license");
+      setLoading(false);
+      return;
     }
+
+    router.push("/licenses");
   };
 
-  if (!mounted || !currentUser || !license) return null;
+  const handleLogout = async () => {
+    await authService.signOut();
+    router.push("/auth/login");
+  };
+
+  if (!mounted || !userId || !license) return null;
 
   return (
     <>
@@ -159,10 +183,7 @@ export default function EditLicense() {
             </Link>
             <Button
               variant="outline"
-              onClick={() => {
-                storage.setCurrentUser(null);
-                router.push("/");
-              }}
+              onClick={handleLogout}
             >
               Logout
             </Button>
@@ -209,7 +230,7 @@ export default function EditLicense() {
                     <Label htmlFor="category">Category *</Label>
                     <Select
                       value={formData.category}
-                      onValueChange={(value) => setFormData({ ...formData, category: value as LicenseCategory })}
+                      onValueChange={(value) => setFormData({ ...formData, category: value })}
                       required
                     >
                       <SelectTrigger id="category">
@@ -254,7 +275,7 @@ export default function EditLicense() {
                     <Label htmlFor="platform">Platform *</Label>
                     <Select
                       value={formData.platform}
-                      onValueChange={(value) => setFormData({ ...formData, platform: value as "iOS" | "Android" })}
+                      onValueChange={(value) => setFormData({ ...formData, platform: value })}
                       required
                     >
                       <SelectTrigger id="platform">
@@ -273,7 +294,7 @@ export default function EditLicense() {
                     <Label htmlFor="licenseType">License Type *</Label>
                     <Select
                       value={formData.licenseType}
-                      onValueChange={(value) => setFormData({ ...formData, licenseType: value as LicenseType })}
+                      onValueChange={(value) => setFormData({ ...formData, licenseType: value as "Perpetual" | "Subscription" })}
                       required
                     >
                       <SelectTrigger id="licenseType">
@@ -343,7 +364,7 @@ export default function EditLicense() {
                     <Label htmlFor="currency">Currency *</Label>
                     <Select
                       value={formData.currency}
-                      onValueChange={(value) => setFormData({ ...formData, currency: value as Currency })}
+                      onValueChange={(value) => setFormData({ ...formData, currency: value as "USD" | "EURO" | "INR" })}
                       required
                     >
                       <SelectTrigger id="currency">
@@ -416,8 +437,8 @@ export default function EditLicense() {
                 </div>
 
                 <div className="flex gap-4 pt-4">
-                  <Button type="submit" size="lg" className="flex-1">
-                    Update License
+                  <Button type="submit" size="lg" className="flex-1" disabled={loading}>
+                    {loading ? "Updating..." : "Update License"}
                   </Button>
                   <Button type="button" variant="outline" size="lg" onClick={() => router.push("/licenses")}>
                     Cancel
