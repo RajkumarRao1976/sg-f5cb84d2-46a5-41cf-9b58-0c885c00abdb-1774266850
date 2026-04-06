@@ -49,7 +49,7 @@ export default function LicensesPage() {
   }, []);
 
   const checkAuthAndLoadLicenses = async () => {
-    const { session } = await authService.getSession();
+    const session = await authService.getCurrentSession();
     if (!session) {
       router.push("/auth/login");
       return;
@@ -141,7 +141,7 @@ export default function LicensesPage() {
       "Renewal Alarm (Days)": license.renewal_alarm_days || "",
       "Price": license.price,
       "Currency": license.currency,
-      "Price in INR": license.price_inr,
+      "Price in INR": license.price_in_inr,
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
@@ -164,7 +164,7 @@ export default function LicensesPage() {
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-        for (const row: any of jsonData) {
+        for (const row of jsonData as any[]) {
           await licenseService.createLicense({
             user_id: userId,
             software_name: row["Software Name"] || "",
@@ -181,7 +181,7 @@ export default function LicensesPage() {
             renewal_alarm_days: row["Renewal Alarm (Days)"] || null,
             price: Number(row["Price"]) || 0,
             currency: row["Currency"] || "INR",
-            price_inr: Number(row["Price in INR"]) || 0,
+            price_in_inr: Number(row["Price in INR"]) || 0,
           });
         }
 
@@ -406,7 +406,7 @@ export default function LicensesPage() {
                           {license.license_type}
                         </Badge>
                       </TableCell>
-                      <TableCell>{formatCurrency(license.price_inr, "INR")}</TableCell>
+                      <TableCell>{formatCurrency(license.price_in_inr, "INR")}</TableCell>
                       <TableCell>{license.purchase_date}</TableCell>
                       <TableCell>{license.renewal_date || "—"}</TableCell>
                       <TableCell className="text-right">

@@ -44,7 +44,7 @@ export default function NewLicense() {
   }, []);
 
   const checkAuth = async () => {
-    const { session } = await authService.getSession();
+    const session = await authService.getCurrentSession();
     if (!session) {
       router.push("/auth/login");
       return;
@@ -117,7 +117,7 @@ export default function NewLicense() {
       renewal_alarm_days: formData.licenseType === "Subscription" ? formData.renewalAlarmDays : null,
       price: Number(formData.price),
       currency: formData.currency,
-      price_inr: priceInINR,
+      price_in_inr: priceInINR,
     });
 
     if (createError) {
@@ -143,9 +143,9 @@ export default function NewLicense() {
             </Link>
             <Button
               variant="outline"
-              onClick={() => {
-                storage.setCurrentUser(null);
-                router.push("/");
+              onClick={async () => {
+                await authService.signOut();
+                router.push("/auth/login");
               }}
             >
               Logout

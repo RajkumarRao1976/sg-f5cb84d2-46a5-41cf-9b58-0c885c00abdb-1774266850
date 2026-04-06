@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Shield, Mail, Lock } from "lucide-react";
+import { Shield, Mail, Lock, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { authService } from "@/services/authService";
 
@@ -24,7 +24,7 @@ export default function Login() {
   }, []);
 
   const checkAuth = async () => {
-    const { session } = await authService.getSession();
+    const session = await authService.getCurrentSession();
     if (session) {
       router.push("/");
     }

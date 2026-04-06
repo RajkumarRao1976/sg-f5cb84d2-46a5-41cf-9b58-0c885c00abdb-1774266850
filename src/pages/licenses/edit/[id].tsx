@@ -49,7 +49,7 @@ export default function EditLicense() {
   }, [id]);
 
   const checkAuthAndLoadLicense = async () => {
-    const { session } = await authService.getSession();
+    const session = await authService.getCurrentSession();
     if (!session) {
       router.push("/auth/login");
       return;
@@ -70,7 +70,7 @@ export default function EditLicense() {
         category: foundLicense.category,
         customCategory: foundLicense.custom_category || "",
         platform: foundLicense.platform || "",
-        licenseType: foundLicense.license_type,
+        licenseType: foundLicense.license_type as "Subscription" | "Perpetual",
         licenseKey: foundLicense.license_key || "",
         username: foundLicense.username || "",
         password: foundLicense.password || "",
@@ -79,7 +79,7 @@ export default function EditLicense() {
         renewalDate: foundLicense.renewal_date || "",
         renewalAlarmDays: foundLicense.renewal_alarm_days || 30,
         price: foundLicense.price.toString(),
-        currency: foundLicense.currency,
+        currency: foundLicense.currency as "INR" | "USD" | "EURO",
       });
     }
   };
@@ -151,7 +151,7 @@ export default function EditLicense() {
         renewal_alarm_days: formData.licenseType === "Subscription" ? formData.renewalAlarmDays : null,
         price: Number(formData.price),
         currency: formData.currency,
-        price_inr: priceInINR,
+        price_in_inr: priceInINR,
       }
     );
 

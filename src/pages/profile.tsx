@@ -34,7 +34,7 @@ export default function Profile() {
   }, []);
 
   const checkAuthAndLoadProfile = async () => {
-    const { session } = await authService.getSession();
+    const session = await authService.getCurrentSession();
     if (!session) {
       router.push("/auth/login");
       return;

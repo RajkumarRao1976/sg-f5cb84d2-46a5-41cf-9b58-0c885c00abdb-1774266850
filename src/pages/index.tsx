@@ -53,7 +53,7 @@ export default function Home() {
   }, []);
 
   const checkAuthAndLoadData = async () => {
-    const { session } = await authService.getSession();
+    const session = await authService.getCurrentSession();
     if (!session) {
       router.push("/auth/login");
       return;
@@ -69,7 +69,7 @@ export default function Home() {
     const { data: licenses } = await licenseService.getLicenses(uid);
 
     const total = licenses.length;
-    const totalSpent = licenses.reduce((sum, l) => sum + (l.price_inr || 0), 0);
+    const totalSpent = licenses.reduce((sum, l) => sum + (l.price_in_inr || 0), 0);
 
     // Calculate active licenses
     const now = new Date();
@@ -100,7 +100,7 @@ export default function Home() {
       if (l.category === "Mobile Application" && l.platform) {
         cat = `Mobile Application - ${l.platform}`;
       }
-      categorySpending[cat] = (categorySpending[cat] || 0) + (l.price_inr || 0);
+      categorySpending[cat] = (categorySpending[cat] || 0) + (l.price_in_inr || 0);
     });
 
     const chartData = Object.entries(categorySpending)
