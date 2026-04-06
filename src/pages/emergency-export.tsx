@@ -5,11 +5,16 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Download, AlertCircle, CheckCircle } from "lucide-react";
 import * as XLSX from "xlsx";
 import type { License, User } from "@/types";
+import Link from "next/link";
 
 export default function EmergencyExportPage() {
   const [mounted, setMounted] = useState(false);
   const [exportStatus, setExportStatus] = useState<"idle" | "success" | "error">("idle");
   const [dataStats, setDataStats] = useState({ users: 0, licenses: 0 });
+  const [users, setUsers] = useState<User[]>([]);
+  const [licenses, setLicenses] = useState<License[]>([]);
+  const [rawData, setRawData] = useState<Record<string, any>>({});
+  const [allKeys, setAllKeys] = useState<string[]>([]);
 
   useEffect(() => {
     setMounted(true);
@@ -20,6 +25,43 @@ export default function EmergencyExportPage() {
       const licenses: License[] = licensesData ? JSON.parse(licensesData) : [];
       setDataStats({ users: users.length, licenses: licenses.length });
     }
+  }, []);
+
+  useEffect(() => {
+    setMounted(true);
+    
+    // Get all localStorage keys
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key) keys.push(key);
+    }
+    setAllKeys(keys);
+
+    // Get all localStorage data
+    const data: Record<string, any> = {};
+    keys.forEach(key => {
+      try {
+        const value = localStorage.getItem(key);
+        data[key] = value ? JSON.parse(value) : value;
+      } catch {
+        data[key] = localStorage.getItem(key);
+      }
+    });
+    setRawData(data);
+
+    console.log("=== EMERGENCY EXPORT DEBUG ===");
+    console.log("All localStorage keys:", keys);
+    console.log("All localStorage data:", data);
+    
+    const allUsers = storage.getUsers();
+    const allLicenses = storage.getLicenses();
+    
+    console.log("Users from storage:", allUsers);
+    console.log("Licenses from storage:", allLicenses);
+    
+    setUsers(allUsers);
+    setLicenses(allLicenses);
   }, []);
 
   const handleExportAllData = () => {
@@ -179,6 +221,62 @@ export default function EmergencyExportPage() {
                 </p>
               </div>
             )}
+
+            <Card className="mb-6 border-amber-warning">
+              <CardHeader>
+                <CardTitle className="font-heading">LocalStorage Inspector</CardTitle>
+                <CardDescription>
+                  All data currently stored in your browser
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm font-medium mb-2">Storage Keys Found: {allKeys.length}</p>
+                    <div className="bg-muted p-3 rounded-lg font-mono text-xs max-h-40 overflow-auto">
+                      {allKeys.length > 0 ? (
+                        <ul className="list-disc list-inside">
+                          {allKeys.map(key => (
+                            <li key={key}>{key}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-muted-foreground">No data found in localStorage</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {Object.keys(rawData).length > 0 && (
+                    <div>
+                      <p className="text-sm font-medium mb-2">Raw Data Preview:</p>
+                      <div className="bg-muted p-3 rounded-lg font-mono text-xs max-h-60 overflow-auto">
+                        <pre>{JSON.stringify(rawData, null, 2)}</pre>
+                      </div>
+                    </div>
+                  )}
+
+                  {allKeys.length === 0 && (
+                    <div className="bg-red-error/10 border border-red-error/20 rounded-lg p-4">
+                      <p className="text-red-error font-medium mb-2">⚠️ No Data Found</p>
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Your browser's localStorage is completely empty. This could mean:
+                      </p>
+                      <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
+                        <li>You haven't registered or entered any data yet</li>
+                        <li>You're in incognito/private browsing mode</li>
+                        <li>Browser data was recently cleared</li>
+                        <li>Different browser/device than where you entered data</li>
+                      </ul>
+                      <div className="mt-4">
+                        <Button asChild>
+                          <Link href="/auth/register">Start Fresh - Register New Account</Link>
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
 
             <Button onClick={handleExportAllData} className="w-full" size="lg">
               <Download className="mr-2 h-5 w-5" />
