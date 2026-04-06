@@ -1,157 +1,153 @@
 import { SEO } from "@/components/SEO";
 import { useState, FormEvent, useEffect } from "react";
 import { useRouter } from "next/router";
-import { storage } from "@/lib/storage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Shield, AlertCircle, QrCode, Copy, Check, Mail } from "lucide-react";
-import Link from "next/link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Checkbox } from "@/components/ui/checkbox";
-import type { User } from "@/types";
+import { Shield, Mail, Lock, Key, CheckCircle } from "lucide-react";
+import Link from "next/link";
+import QRCode from "qrcode";
+import { authService } from "@/services/authService";
+import { profileService } from "@/services/profileService";
 
 export default function Register() {
   const router = useRouter();
+  const [step, setStep] = useState<"details" | "otp" | "2fa">("details");
   const [email, setEmail] = useState("");
-  const [notificationEmail, setNotificationEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [enable2FA, setEnable2FA] = useState(false);
-  const [step, setStep] = useState<"details" | "emailOTP" | "2faSetup">("details");
+  const [notificationEmail, setNotificationEmail] = useState("");
+  const [otp, setOtp] = useState("");
   const [generatedOTP, setGeneratedOTP] = useState("");
-  const [enteredOTP, setEnteredOTP] = useState("");
+  const [twoFACode, setTwoFACode] = useState("");
   const [twoFASecret, setTwoFASecret] = useState("");
   const [qrCodeUrl, setQrCodeUrl] = useState("");
-  const [verificationCode, setVerificationCode] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [pendingUser, setPendingUser] = useState<Omit<User, "id" | "createdAt"> | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (step === "emailOTP" && !generatedOTP) {
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
-      setGeneratedOTP(otp);
-      console.log("Email OTP (simulated):", otp);
-    }
-  }, [step, generatedOTP]);
+    setMounted(true);
+  }, []);
 
-  useEffect(() => {
-    if (step === "2faSetup" && !twoFASecret) {
-      const secret = Array.from({ length: 32 }, () => 
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"[Math.floor(Math.random() * 32)]
-      ).join("");
-      setTwoFASecret(secret);
-      
-      const issuer = "LicenseVault";
-      const qrUrl = `otpauth://totp/${issuer}:${email}?secret=${secret}&issuer=${issuer}`;
-      setQrCodeUrl(qrUrl);
-    }
-  }, [step, email, twoFASecret]);
-
-  const handleDetailsSubmit = (e: FormEvent) => {
+  const handleDetailsSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
+    setSuccess("");
+    setLoading(true);
+
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters long");
+      setLoading(false);
+      return;
+    }
 
     if (password !== confirmPassword) {
       setError("Passwords do not match");
+      setLoading(false);
       return;
     }
 
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters");
-      return;
-    }
+    // Generate 6-digit OTP
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    setGeneratedOTP(otpCode);
 
-    const users = storage.getUsers();
-    if (users.some((u) => u.email === email)) {
-      setError("Email already registered");
-      return;
-    }
+    setSuccess(`Verification code sent to ${email}`);
+    setStep("otp");
+    setLoading(false);
 
-    const notifEmail = notificationEmail.trim() || email;
-    
-    setPendingUser({
-      email,
-      notificationEmail: notifEmail,
-      password,
-      emailVerified: false,
-      twoFASecret: undefined,
-      twoFAEnabled: enable2FA,
-    });
-
-    setStep("emailOTP");
+    console.log(`📧 Email Verification OTP: ${otpCode}`);
   };
 
-  const handleEmailOTPVerify = (e: FormEvent) => {
+  const handleOTPVerify = (e: FormEvent) => {
     e.preventDefault();
     setError("");
-
-    if (enteredOTP !== generatedOTP) {
-      setError("Invalid OTP. Please check and try again.");
-      return;
-    }
-
-    if (!pendingUser) return;
-
-    if (enable2FA) {
-      setStep("2faSetup");
-    } else {
-      completeRegistration();
-    }
-  };
-
-  const handle2FASetup = (e: FormEvent) => {
-    e.preventDefault();
-    setError("");
-
-    if (verificationCode.length !== 6) {
-      setError("Please enter a valid 6-digit verification code");
-      return;
-    }
-
-    completeRegistration();
-  };
-
-  const completeRegistration = () => {
-    if (!pendingUser) return;
-    
     setLoading(true);
 
+    if (otp !== generatedOTP) {
+      setError("Invalid OTP code. Please try again.");
+      setLoading(false);
+      return;
+    }
+
+    setSuccess("Email verified! Would you like to enable 2FA?");
+    setStep("2fa");
+    setLoading(false);
+  };
+
+  const handleEnable2FA = async () => {
+    const secret = Math.random().toString(36).substring(2, 15);
+    setTwoFASecret(secret);
+
+    const otpauth = `otpauth://totp/LicenseVault:${email}?secret=${secret}&issuer=LicenseVault`;
+    const qr = await QRCode.toDataURL(otpauth);
+    setQrCodeUrl(qr);
+  };
+
+  const handleSkip2FA = async () => {
+    await createAccount(false);
+  };
+
+  const handleVerify2FA = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+
+    if (twoFACode.length !== 6) {
+      setError("Please enter a valid 6-digit code");
+      return;
+    }
+
+    await createAccount(true);
+  };
+
+  const createAccount = async (with2FA: boolean) => {
+    setLoading(true);
+    setError("");
+
     try {
-      const users = storage.getUsers();
-      
-      const newUser: User = {
-        ...pendingUser,
-        id: crypto.randomUUID(),
-        emailVerified: true,
-        twoFASecret: enable2FA ? twoFASecret : undefined,
-        createdAt: new Date().toISOString(),
-      };
+      const { error: signUpError, user } = await authService.signUp(
+        email,
+        password
+      );
 
-      users.push(newUser);
-      storage.saveUsers(users);
-      storage.setCurrentUser(newUser);
+      if (signUpError) {
+        setError(signUpError.message || "Registration failed");
+        setLoading(false);
+        return;
+      }
 
-      router.push("/");
-    } catch (err) {
-      setError("Registration failed. Please try again.");
+      if (!user) {
+        setError("Failed to create user account");
+        setLoading(false);
+        return;
+      }
+
+      // Update profile with notification email and 2FA settings
+      const { error: profileError } = await profileService.updateProfile(user.id, {
+        notification_email: notificationEmail || email,
+        two_fa_enabled: with2FA,
+        two_fa_secret: with2FA ? twoFASecret : null,
+      });
+
+      if (profileError) {
+        console.error("Profile update error:", profileError);
+      }
+
+      setSuccess("Registration successful! Redirecting to login...");
+      setTimeout(() => {
+        router.push("/auth/login");
+      }, 2000);
+    } catch (err: any) {
+      setError(err.message || "An error occurred during registration");
+    } finally {
       setLoading(false);
     }
   };
 
-  const copySecret = () => {
-    navigator.clipboard.writeText(twoFASecret);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const copyOTP = () => {
-    navigator.clipboard.writeText(generatedOTP);
-    setTimeout(() => {}, 2000);
-  };
+  if (!mounted) return null;
 
   return (
     <>

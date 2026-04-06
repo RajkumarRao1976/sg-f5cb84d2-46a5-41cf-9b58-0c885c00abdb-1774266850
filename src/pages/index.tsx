@@ -1,12 +1,17 @@
 import { SEO } from "@/components/SEO";
 import { useEffect, useState } from "react";
-import { storage } from "@/lib/storage";
+import { useRouter } from "next/router";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Shield, Key, Database, Download, Sparkles } from "lucide-react";
 import Link from "next/link";
-import type { User, License } from "@/types";
+import type { Database } from "@/integrations/supabase/types";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { authService } from "@/services/authService";
+import { licenseService } from "@/services/licenseService";
+import { formatCurrency } from "@/lib/currency";
+
+type License = Database["public"]["Tables"]["licenses"]["Row"];
 
 const CATEGORY_COLORS: Record<string, string> = {
   "Music Production": "#8B5CF6",
@@ -29,7 +34,9 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function Home() {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const router = useRouter();
+  const [userId, setUserId] = useState<string | null>(null);
+  const [notificationEmail, setNotificationEmail] = useState("");
   const [mounted, setMounted] = useState(false);
   const [stats, setStats] = useState({
     total: 0,
@@ -42,466 +49,291 @@ export default function Home() {
 
   useEffect(() => {
     setMounted(true);
-    const user = storage.getCurrentUser();
-    setCurrentUser(user);
-    if (user) {
-      calculateStats();
-      checkExpiringLicenses();
-    }
+    checkAuthAndLoadData();
   }, []);
 
-  const checkExpiringLicenses = () => {
-    const licenses = storage.getLicenses();
-    const now = new Date();
-    
-    const expiring = licenses.filter((l) => {
-      if (l.licenseType === "Subscription" && l.renewalDate && l.renewalAlarmDays) {
-        const renewalDate = new Date(l.renewalDate);
-        const alarmDate = new Date(renewalDate.getTime() - l.renewalAlarmDays * 24 * 60 * 60 * 1000);
-        return alarmDate <= now && renewalDate > now;
-      }
-      return false;
-    });
-
-    setExpiringLicenses(expiring);
-
-    // Send notification email (simulated)
-    if (expiring.length > 0 && currentUser) {
-      sendExpiryNotification(expiring, currentUser.notificationEmail);
+  const checkAuthAndLoadData = async () => {
+    const { session } = await authService.getSession();
+    if (!session) {
+      router.push("/auth/login");
+      return;
     }
+
+    setUserId(session.user.id);
+    setNotificationEmail(session.user.email || "");
+    await calculateStats(session.user.id);
+    await checkExpiringLicenses(session.user.id);
   };
 
-  const sendExpiryNotification = (licenses: License[], email: string) => {
-    if (licenses.length === 1) {
-      const license = licenses[0];
-      const daysUntilExpiry = Math.ceil((new Date(license.renewalDate!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-      console.log(`📧 Email notification sent to ${email}:`);
-      console.log(`Subject: License Expiring Soon - ${license.softwareName}`);
-      console.log(`Your ${license.softwareName} license will expire in ${daysUntilExpiry} days on ${new Date(license.renewalDate!).toLocaleDateString()}.`);
-    } else {
-      console.log(`📧 Email notification sent to ${email}:`);
-      console.log(`Subject: ${licenses.length} Licenses Expiring Soon`);
-      console.log(`The following licenses are expiring soon:`);
-      licenses.forEach((l) => {
-        const daysUntilExpiry = Math.ceil((new Date(l.renewalDate!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-        console.log(`- ${l.softwareName} (expires in ${daysUntilExpiry} days)`);
-      });
-    }
-  };
+  const calculateStats = async (uid: string) => {
+    const { data: licenses } = await licenseService.getLicenses(uid);
 
-  const calculateStats = () => {
-    const licenses = storage.getLicenses();
+    const total = licenses.length;
+    const totalSpent = licenses.reduce((sum, l) => sum + (l.price_inr || 0), 0);
+
+    // Calculate active licenses
     const now = new Date();
-
     const active = licenses.filter((l) => {
-      if (l.licenseType === "Perpetual") return true;
-      if (l.renewalDate) {
-        const renewalDate = new Date(l.renewalDate);
-        return renewalDate > now;
+      if (l.license_type === "Perpetual") return true;
+      if (l.renewal_date) {
+        return new Date(l.renewal_date) > now;
       }
       return false;
     }).length;
 
-    const expiringSoon = licenses.filter((l) => {
-      if (l.licenseType === "Subscription" && l.renewalDate && l.renewalAlarmDays) {
-        const renewalDate = new Date(l.renewalDate);
-        const alarmDate = new Date(renewalDate.getTime() - l.renewalAlarmDays * 24 * 60 * 60 * 1000);
+    // Calculate expiring soon
+    const expiring = licenses.filter((l) => {
+      if (l.license_type === "Subscription" && l.renewal_date && l.renewal_alarm_days) {
+        const renewalDate = new Date(l.renewal_date);
+        const alarmDate = new Date(renewalDate.getTime() - l.renewal_alarm_days * 24 * 60 * 60 * 1000);
         return alarmDate <= now && renewalDate > now;
       }
       return false;
     }).length;
 
-    const totalSpent = licenses.reduce((sum, l) => sum + (l.priceInINR || 0), 0);
+    setStats({ total, active, expiringSoon: expiring, totalSpent });
 
     // Calculate spending by category
     const categorySpending: Record<string, number> = {};
     licenses.forEach((l) => {
-      let cat = l.customCategory || l.category;
+      let cat = l.custom_category || l.category;
       if (l.category === "Mobile Application" && l.platform) {
         cat = `Mobile Application - ${l.platform}`;
       }
-      categorySpending[cat] = (categorySpending[cat] || 0) + (l.priceInINR || 0);
+      categorySpending[cat] = (categorySpending[cat] || 0) + (l.price_inr || 0);
     });
 
     const chartData = Object.entries(categorySpending)
       .map(([category, amount]) => ({ category, amount }))
       .sort((a, b) => b.amount - a.amount);
 
-    setStats({
-      total: licenses.length,
-      active,
-      expiringSoon,
-      totalSpent,
-    });
     setCategoryData(chartData);
   };
 
-  const populateSampleData = () => {
-    if (!currentUser) return;
+  const checkExpiringLicenses = async (uid: string) => {
+    const { data: expiring } = await licenseService.getExpiringLicenses(uid);
+    setExpiringLicenses(expiring);
 
-    const nowStr = new Date().toISOString();
+    if (expiring.length > 0 && notificationEmail) {
+      sendExpiryNotification(expiring, notificationEmail);
+    }
+  };
 
-    const sampleLicenses: Omit<License, "id">[] = [
-      {
-        softwareName: "Adobe Premiere Pro",
-        category: "Video Editing",
-        licenseType: "Subscription",
-        purchaseDate: "2024-01-15",
-        renewalDate: "2025-01-15",
-        renewalAlarmDays: 30,
-        currency: "USD",
-        price: 54.99,
-        priceInINR: 4591.67,
-        licenseKey: "ABCD-1234-EFGH-5678",
-        username: "",
-        password: "",
-        downloadUrl: "https://adobe.com/premiere",
-        customCategory: "",
-        createdAt: nowStr,
-        updatedAt: nowStr,
-      },
-      {
-        softwareName: "FL Studio Producer Edition",
-        category: "Music Production",
-        licenseType: "Perpetual",
-        purchaseDate: "2023-06-10",
-        renewalDate: "",
-        renewalAlarmDays: 0,
-        currency: "USD",
-        price: 199,
-        priceInINR: 16616.50,
-        licenseKey: "FL-PROD-9876-5432-1098",
-        username: "",
-        password: "",
-        downloadUrl: "https://image-line.com",
-        customCategory: "",
-        createdAt: nowStr,
-        updatedAt: nowStr,
-      },
-      {
-        softwareName: "Tableau Desktop",
-        category: "Data Analytics",
-        licenseType: "Subscription",
-        purchaseDate: "2024-03-01",
-        renewalDate: "2024-12-31",
-        renewalAlarmDays: 15,
-        currency: "USD",
-        price: 70,
-        priceInINR: 5845,
-        licenseKey: "",
-        username: "raj.kumar@example.com",
-        password: "TableauPass2024!",
-        downloadUrl: "https://tableau.com/download",
-        customCategory: "",
-        createdAt: nowStr,
-        updatedAt: nowStr,
-      },
-      {
-        softwareName: "JetBrains IntelliJ IDEA Ultimate",
-        category: "Development",
-        licenseType: "Subscription",
-        purchaseDate: "2024-02-01",
-        renewalDate: "2025-02-01",
-        renewalAlarmDays: 30,
-        currency: "EURO",
-        price: 149,
-        priceInINR: 13588.80,
-        licenseKey: "IDEA-ULTIMATE-KEY-2024",
-        username: "",
-        password: "",
-        downloadUrl: "https://jetbrains.com/idea",
-        customCategory: "",
-        createdAt: nowStr,
-        updatedAt: nowStr,
-      },
-      {
-        softwareName: "Microsoft Office 365",
-        category: "Productivity",
-        licenseType: "Subscription",
-        purchaseDate: "2024-01-01",
-        renewalDate: "2025-01-01",
-        renewalAlarmDays: 30,
-        currency: "INR",
-        price: 4899,
-        priceInINR: 4899,
-        licenseKey: "",
-        username: "rajkumar.rao@hotmail.com",
-        password: "Office365Pass!",
-        downloadUrl: "https://office.com",
-        customCategory: "",
-        createdAt: nowStr,
-        updatedAt: nowStr,
-      },
-    ];
+  const sendExpiryNotification = (licenses: License[], email: string) => {
+    if (licenses.length === 1) {
+      const license = licenses[0];
+      const daysUntilExpiry = Math.ceil((new Date(license.renewal_date!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+      console.log(`📧 Email notification sent to ${email}:`);
+      console.log(`Subject: License Expiring Soon - ${license.software_name}`);
+      console.log(`Your ${license.software_name} license will expire in ${daysUntilExpiry} days on ${new Date(license.renewal_date!).toLocaleDateString()}.`);
+    } else {
+      console.log(`📧 Email notification sent to ${email}:`);
+      console.log(`Subject: ${licenses.length} Licenses Expiring Soon`);
+      console.log(`The following licenses are expiring soon:`);
+      licenses.forEach((l) => {
+        const daysUntilExpiry = Math.ceil((new Date(l.renewal_date!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+        console.log(`- ${l.software_name} (expires in ${daysUntilExpiry} days)`);
+      });
+    }
+  };
 
-    const currentLicenses = storage.getLicenses();
-    const newLicenses = sampleLicenses.map((license) => ({
-      ...license,
-      id: crypto.randomUUID(),
-    }));
-
-    storage.saveLicenses([...currentLicenses, ...newLicenses]);
-    calculateStats();
+  const handleLogout = async () => {
+    await authService.signOut();
+    router.push("/auth/login");
   };
 
   if (!mounted) return null;
 
-  if (currentUser) {
-    return (
-      <>
-        <SEO title="Dashboard - LicenseVault" description="Manage your software licenses" />
-        <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-background">
-          <nav className="border-b bg-card/50 backdrop-blur-sm">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <Shield className="h-8 w-8 text-blue-accent" />
-                <div>
-                  <h1 className="text-2xl font-heading font-bold text-foreground">LicenseVault</h1>
-                  <p className="text-xs text-muted-foreground">Developer: Rajkumar Rao.R</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <Link href="/profile">
-                  <Button variant="outline" size="sm">
-                    Profile
-                  </Button>
-                </Link>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    storage.setCurrentUser(null);
-                    setCurrentUser(null);
-                  }}
-                >
-                  Logout
-                </Button>
-              </div>
-            </div>
-          </nav>
-
-          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-            <div className="mb-8 flex justify-between items-start">
-              <div>
-                <h2 className="text-3xl font-heading font-bold text-foreground mb-2">
-                  Welcome back, {currentUser.email}
-                </h2>
-                <p className="text-muted-foreground">Manage your software licenses with ease</p>
-              </div>
-              {stats.total === 0 && (
-                <Button onClick={populateSampleData} variant="outline" size="sm">
-                  <Sparkles className="mr-2 h-4 w-4" />
-                  Populate Sample Data
-                </Button>
-              )}
-            </div>
-
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Total Licenses</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-heading font-bold text-foreground">{stats.total}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Active</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-heading font-bold text-green-success">{stats.active}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Expiring Soon</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-heading font-bold text-amber-warning">{stats.expiringSoon}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Total Spent</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-heading font-bold text-foreground">
-                    ₹{stats.totalSpent.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {expiringLicenses.length > 0 && (
-              <Card className="mb-8 border-amber-warning bg-amber-warning/5">
-                <CardHeader>
-                  <CardTitle className="font-heading text-amber-warning">
-                    ⚠️ {expiringLicenses.length === 1 ? "License Expiring Soon" : `${expiringLicenses.length} Licenses Expiring Soon`}
-                  </CardTitle>
-                  <CardDescription>
-                    {expiringLicenses.length === 1 
-                      ? "Action required to renew your license"
-                      : "Multiple licenses require your attention"}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {expiringLicenses.map((license) => {
-                      const daysUntilExpiry = Math.ceil((new Date(license.renewalDate!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                      return (
-                        <div key={license.id} className="flex justify-between items-center p-3 bg-card rounded-lg border border-amber-warning/20">
-                          <div>
-                            <p className="font-medium text-foreground">{license.softwareName}</p>
-                            <p className="text-sm text-muted-foreground">
-                              Expires in {daysUntilExpiry} days ({new Date(license.renewalDate!).toLocaleDateString()})
-                            </p>
-                          </div>
-                          <Link href={`/licenses/edit/${license.id}`}>
-                            <Button variant="outline" size="sm">
-                              Update
-                            </Button>
-                          </Link>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="mt-4 pt-4 border-t text-sm text-muted-foreground">
-                    📧 Email notifications sent to: {currentUser.notificationEmail}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            <Card className="mb-8">
-              <CardHeader>
-                <CardTitle className="font-heading">Spending by Category</CardTitle>
-                <CardDescription>Total INR spent on each software category</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {categoryData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={categoryData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis 
-                        dataKey="category" 
-                        angle={-45}
-                        textAnchor="end"
-                        height={100}
-                        tick={{ fill: "hsl(var(--foreground))", fontSize: 12 }}
-                      />
-                      <YAxis 
-                        tick={{ fill: "hsl(var(--foreground))", fontSize: 12 }}
-                        tickFormatter={(value) => `₹${value.toLocaleString("en-IN")}`}
-                      />
-                      <Tooltip 
-                        formatter={(value: number) => `₹${value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                        contentStyle={{
-                          backgroundColor: "hsl(var(--card))",
-                          border: "1px solid hsl(var(--border))",
-                          borderRadius: "8px",
-                        }}
-                      />
-                      <Bar dataKey="amount" radius={[8, 8, 0, 0]}>
-                        {categoryData.map((entry, index) => (
-                          <Cell 
-                            key={`cell-${index}`} 
-                            fill={CATEGORY_COLORS[entry.category] || "#3B82F6"} 
-                          />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                    No spending data available. Add licenses to see the breakdown.
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="font-heading">Quick Actions</CardTitle>
-                <CardDescription>Get started with managing your licenses</CardDescription>
-              </CardHeader>
-              <CardContent className="grid sm:grid-cols-2 gap-4">
-                <Link href="/licenses/new">
-                  <Button className="w-full" size="lg">
-                    <Key className="mr-2 h-5 w-5" />
-                    Add New License
-                  </Button>
-                </Link>
-                <Link href="/licenses">
-                  <Button variant="outline" className="w-full" size="lg">
-                    <Database className="mr-2 h-5 w-5" />
-                    View All Licenses
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          </main>
-        </div>
-      </>
-    );
-  }
-
   return (
     <>
-      <SEO title="LicenseVault - Professional Software License Management" description="Manage all your software licenses in one secure place" />
-      <div className="min-h-screen bg-gradient-hero flex items-center justify-center px-4">
-        <div className="max-w-5xl w-full">
-          <div className="text-center mb-12">
-            <div className="flex items-center justify-center gap-3 mb-6">
-              <Shield className="h-16 w-16 text-white" />
-              <h1 className="text-5xl font-heading font-bold text-white">LicenseVault</h1>
-            </div>
-            <p className="text-xl text-white/90 mb-8">Professional Software License Management</p>
-            <div className="flex flex-wrap justify-center gap-4 text-sm text-white/80">
-              <div className="flex items-center gap-2">
-                <Shield className="h-4 w-4" />
-                <span>Developer: Rajkumar Rao.R</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Database className="h-4 w-4" />
-                <span>Ultra Secure Database</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Download className="h-4 w-4" />
-                <span>Backup & Restore</span>
+      <SEO title="Dashboard - LicenseVault" description="Manage your software licenses" />
+      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-background">
+        <nav className="border-b bg-card/50 backdrop-blur-sm">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <Shield className="h-8 w-8 text-blue-accent" />
+              <div>
+                <h1 className="text-2xl font-heading font-bold text-foreground">LicenseVault</h1>
+                <p className="text-xs text-muted-foreground">Developer: Rajkumar Rao.R</p>
               </div>
             </div>
+            <div className="flex items-center gap-3">
+              <Link href="/profile">
+                <Button variant="outline" size="sm">
+                  Profile
+                </Button>
+              </Link>
+              <Button
+                variant="outline"
+                onClick={handleLogout}
+              >
+                Logout
+              </Button>
+            </div>
+          </div>
+        </nav>
+
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+          <div className="mb-8 flex justify-between items-start">
+            <div>
+              <h2 className="text-3xl font-heading font-bold text-foreground mb-2">
+                Welcome back, {notificationEmail}
+              </h2>
+              <p className="text-muted-foreground">Manage your software licenses with ease</p>
+            </div>
+            {stats.total === 0 && (
+              <Button onClick={() => {}} variant="outline" size="sm">
+                <Sparkles className="mr-2 h-4 w-4" />
+                Populate Sample Data
+              </Button>
+            )}
           </div>
 
-          <div className="grid md:grid-cols-2 gap-6">
-            <Link href="/auth/login">
-              <Card className="hover:shadow-lg transition-shadow cursor-pointer h-full">
-                <CardHeader>
-                  <CardTitle className="font-heading text-2xl">Login</CardTitle>
-                  <CardDescription>Access your license vault</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button className="w-full" size="lg">
-                    Sign In
-                  </Button>
-                </CardContent>
-              </Card>
-            </Link>
-
-            <Link href="/auth/register">
-              <Card className="hover:shadow-lg transition-shadow cursor-pointer h-full">
-                <CardHeader>
-                  <CardTitle className="font-heading text-2xl">Register</CardTitle>
-                  <CardDescription>Create your free account</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button variant="outline" className="w-full" size="lg">
-                    Get Started
-                  </Button>
-                </CardContent>
-              </Card>
-            </Link>
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Licenses</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-heading font-bold text-foreground">{stats.total}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Active</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-heading font-bold text-green-success">{stats.active}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Expiring Soon</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-heading font-bold text-amber-warning">{stats.expiringSoon}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Spent</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-heading font-bold text-foreground">
+                  ₹{stats.totalSpent.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </CardContent>
+            </Card>
           </div>
-        </div>
+
+          {expiringLicenses.length > 0 && (
+            <Card className="mb-8 border-amber-warning bg-amber-warning/5">
+              <CardHeader>
+                <CardTitle className="font-heading text-amber-warning">
+                  ⚠️ {expiringLicenses.length === 1 ? "License Expiring Soon" : `${expiringLicenses.length} Licenses Expiring Soon`}
+                </CardTitle>
+                <CardDescription>
+                  {expiringLicenses.length === 1 
+                    ? "Action required to renew your license"
+                    : "Multiple licenses require your attention"}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {expiringLicenses.map((license) => {
+                    const daysUntilExpiry = Math.ceil((new Date(license.renewal_date!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                    return (
+                      <div key={license.id} className="flex justify-between items-center p-3 bg-card rounded-lg border border-amber-warning/20">
+                        <div>
+                          <p className="font-medium text-foreground">{license.software_name}</p>
+                          <p className="text-sm text-muted-foreground">
+                            Expires in {daysUntilExpiry} days ({new Date(license.renewal_date!).toLocaleDateString()})
+                          </p>
+                        </div>
+                        <Link href={`/licenses/edit/${license.id}`}>
+                          <Button variant="outline" size="sm">
+                            Update
+                          </Button>
+                        </Link>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 pt-4 border-t text-sm text-muted-foreground">
+                  📧 Email notifications sent to: {notificationEmail}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          <Card className="mb-8">
+            <CardHeader>
+              <CardTitle className="font-heading">Spending by Category</CardTitle>
+              <CardDescription>Total INR spent on each software category</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {categoryData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={categoryData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis 
+                      dataKey="category" 
+                      angle={-45}
+                      textAnchor="end"
+                      height={100}
+                      tick={{ fill: "hsl(var(--foreground))", fontSize: 12 }}
+                    />
+                    <YAxis 
+                      tick={{ fill: "hsl(var(--foreground))", fontSize: 12 }}
+                      tickFormatter={(value) => `₹${value.toLocaleString("en-IN")}`}
+                    />
+                    <Tooltip 
+                      formatter={(value: number) => `₹${value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--card))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: "8px",
+                      }}
+                    />
+                    <Bar dataKey="amount" radius={[8, 8, 0, 0]}>
+                      {categoryData.map((entry, index) => (
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={CATEGORY_COLORS[entry.category] || "#3B82F6"} 
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                  No spending data available. Add licenses to see the breakdown.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-heading">Quick Actions</CardTitle>
+              <CardDescription>Get started with managing your licenses</CardDescription>
+            </CardHeader>
+            <CardContent className="grid sm:grid-cols-2 gap-4">
+              <Link href="/licenses/new">
+                <Button className="w-full" size="lg">
+                  <Key className="mr-2 h-5 w-5" />
+                  Add New License
+                </Button>
+              </Link>
+              <Link href="/licenses">
+                <Button variant="outline" className="w-full" size="lg">
+                  <Database className="mr-2 h-5 w-5" />
+                  View All Licenses
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        </main>
       </div>
     </>
   );
