@@ -30,13 +30,20 @@ export default function ForgotPassword() {
 
     // Check if user exists
     const users = storage.getUsers();
-    const user = users.find((u) => u.email === email);
+    console.log("🔍 All registered users:", users);
+    console.log("🔍 Looking for email:", email);
+    
+    const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
 
     if (!user) {
-      setError("No account found with this email address");
+      console.log("❌ User not found");
+      console.log("📧 Available emails:", users.map(u => u.email));
+      setError(`No account found with this email address. Registered emails: ${users.map(u => u.email).join(", ")}`);
       setLoading(false);
       return;
     }
+
+    console.log("✅ User found:", user.email);
 
     // Generate 6-digit OTP
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -85,7 +92,7 @@ export default function ForgotPassword() {
 
     // Update user's password
     const users = storage.getUsers();
-    const userIndex = users.findIndex((u) => u.email === email);
+    const userIndex = users.findIndex((u) => u.email.toLowerCase() === email.toLowerCase());
 
     if (userIndex === -1) {
       setError("User not found");
@@ -99,6 +106,8 @@ export default function ForgotPassword() {
     };
 
     storage.saveUsers(users);
+    
+    console.log("✅ Password updated successfully for:", email);
 
     setSuccess("Password reset successful! Redirecting to login...");
     setLoading(false);
