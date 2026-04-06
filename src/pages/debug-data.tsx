@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Database, Eye, EyeOff } from "lucide-react";
 import type { User, License } from "@/types";
+import Link from "next/link";
 
 export default function DebugData() {
   const [users, setUsers] = useState<User[]>([]);
@@ -157,7 +158,7 @@ export default function DebugData() {
 
           <div className="mt-6 text-center">
             <Button variant="outline" asChild>
-              <a href="/auth/login">Go to Login</a>
+              <Link href="/auth/login">Go to Login</Link>
             </Button>
           </div>
         </div>
