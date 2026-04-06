@@ -1,5 +1,6 @@
 import { SEO } from "@/components/SEO";
 import { useEffect, useState } from "react";
+import { storage } from "@/lib/storage";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Download, AlertCircle, CheckCircle } from "lucide-react";
