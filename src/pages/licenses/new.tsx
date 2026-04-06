@@ -1,7 +1,6 @@
 import { SEO } from "@/components/SEO";
 import { useState, FormEvent, useEffect } from "react";
 import { useRouter } from "next/router";
-import { storage } from "@/lib/storage";
 import { convertToINR } from "@/lib/currency";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,20 +11,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Shield, ArrowLeft, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import type { License, LicenseCategory, LicenseType, Currency, User, MobilePlatform } from "@/types";
+import { authService } from "@/services/authService";
+import { licenseService } from "@/services/licenseService";
 
 export default function NewLicense() {
   const router = useRouter();
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   
   const [formData, setFormData] = useState({
     softwareName: "",
-    category: "" as LicenseCategory | "",
+    category: "",
     customCategory: "",
-    platform: "" as "iOS" | "Android" | "",
-    licenseType: "Perpetual" as LicenseType,
+    platform: "",
+    licenseType: "Perpetual" as "Perpetual" | "Subscription",
     licenseKey: "",
     username: "",
     password: "",
@@ -34,89 +35,101 @@ export default function NewLicense() {
     renewalDate: "",
     renewalAlarmDays: 30,
     price: "",
-    currency: "INR" as Currency,
+    currency: "INR" as "USD" | "EURO" | "INR",
   });
 
   useEffect(() => {
     setMounted(true);
-    const user = storage.getCurrentUser();
-    if (!user) {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    const { session } = await authService.getSession();
+    if (!session) {
       router.push("/auth/login");
       return;
     }
-    setCurrentUser(user);
-  }, [router]);
+    setUserId(session.user.id);
+  };
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
+    setLoading(true);
 
     if (!formData.softwareName.trim()) {
       setError("Software name is required");
+      setLoading(false);
       return;
     }
 
     if (!formData.category) {
       setError("Category is required");
+      setLoading(false);
       return;
     }
 
     if (formData.category === "Others" && !formData.customCategory.trim()) {
       setError("Custom category is required when 'Others' is selected");
+      setLoading(false);
       return;
     }
 
     if (formData.category === "Mobile Application" && !formData.platform) {
       setError("Platform (iOS or Android) is required for Mobile Application");
+      setLoading(false);
       return;
     }
 
     if (formData.licenseType === "Subscription" && !formData.renewalDate) {
       setError("Renewal date is required for subscription licenses");
+      setLoading(false);
       return;
     }
 
     if (!formData.price || Number(formData.price) <= 0) {
       setError("Valid price is required");
+      setLoading(false);
       return;
     }
 
     if (formData.licenseKey && formData.licenseKey.length > 3000) {
       setError("License key cannot exceed 3000 characters");
+      setLoading(false);
       return;
     }
 
     const priceInINR = convertToINR(Number(formData.price), formData.currency);
 
-    const newLicense: License = {
-      id: crypto.randomUUID(),
-      softwareName: formData.softwareName.trim(),
+    const { error: createError } = await licenseService.createLicense({
+      user_id: userId!,
+      software_name: formData.softwareName.trim(),
       category: formData.category,
-      customCategory: formData.category === "Others" ? formData.customCategory.trim() : undefined,
-      platform: formData.category === "Mobile Application" ? formData.platform as MobilePlatform : undefined,
-      licenseType: formData.licenseType,
-      licenseKey: formData.licenseKey.trim() || undefined,
-      username: formData.username.trim() || undefined,
-      password: formData.password.trim() || undefined,
-      downloadUrl: formData.downloadUrl.trim() || undefined,
-      purchaseDate: formData.purchaseDate,
-      renewalDate: formData.licenseType === "Subscription" ? formData.renewalDate : undefined,
-      renewalAlarmDays: formData.licenseType === "Subscription" ? formData.renewalAlarmDays : undefined,
+      custom_category: formData.category === "Others" ? formData.customCategory.trim() : null,
+      platform: formData.category === "Mobile Application" ? formData.platform : null,
+      license_type: formData.licenseType,
+      license_key: formData.licenseKey.trim() || null,
+      username: formData.username.trim() || null,
+      password: formData.password.trim() || null,
+      download_url: formData.downloadUrl.trim() || null,
+      purchase_date: formData.purchaseDate,
+      renewal_date: formData.licenseType === "Subscription" ? formData.renewalDate : null,
+      renewal_alarm_days: formData.licenseType === "Subscription" ? formData.renewalAlarmDays : null,
       price: Number(formData.price),
       currency: formData.currency,
-      priceInINR,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+      price_inr: priceInINR,
+    });
 
-    const licenses = storage.getLicenses();
-    licenses.push(newLicense);
-    storage.saveLicenses(licenses);
+    if (createError) {
+      setError(createError.message || "Failed to create license");
+      setLoading(false);
+      return;
+    }
 
     router.push("/licenses");
   };
 
-  if (!mounted || !currentUser) return null;
+  if (!mounted || !userId) return null;
 
   return (
     <>
@@ -180,7 +193,7 @@ export default function NewLicense() {
                     <Label htmlFor="category">Category *</Label>
                     <Select
                       value={formData.category}
-                      onValueChange={(value) => setFormData({ ...formData, category: value as LicenseCategory })}
+                      onValueChange={(value) => setFormData({ ...formData, category: value })}
                       required
                     >
                       <SelectTrigger id="category">
@@ -225,7 +238,7 @@ export default function NewLicense() {
                     <Label htmlFor="platform">Platform *</Label>
                     <Select
                       value={formData.platform}
-                      onValueChange={(value) => setFormData({ ...formData, platform: value as "iOS" | "Android" })}
+                      onValueChange={(value) => setFormData({ ...formData, platform: value })}
                       required
                     >
                       <SelectTrigger id="platform">
@@ -244,7 +257,7 @@ export default function NewLicense() {
                     <Label htmlFor="licenseType">License Type *</Label>
                     <Select
                       value={formData.licenseType}
-                      onValueChange={(value) => setFormData({ ...formData, licenseType: value as LicenseType })}
+                      onValueChange={(value) => setFormData({ ...formData, licenseType: value as "Perpetual" | "Subscription" })}
                       required
                     >
                       <SelectTrigger id="licenseType">
@@ -314,7 +327,7 @@ export default function NewLicense() {
                     <Label htmlFor="currency">Currency *</Label>
                     <Select
                       value={formData.currency}
-                      onValueChange={(value) => setFormData({ ...formData, currency: value as Currency })}
+                      onValueChange={(value) => setFormData({ ...formData, currency: value as "USD" | "EURO" | "INR" })}
                       required
                     >
                       <SelectTrigger id="currency">
